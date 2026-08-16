@@ -425,6 +425,7 @@ path.transition.highlight {
 .mflow-table-panel tr.mflow-clickable-row{cursor:pointer}
 .mflow-table-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
 .mflow-diamond-badge{color:#7c8cff;flex-shrink:0;margin-left:2px}
+.mflow-hub-badge{color:var(--green);flex-shrink:0;margin-left:2px}
 
 .mflow-pal-shell{width:44px;flex-shrink:0;position:relative;z-index:20}
 .mflow-pal-shell.pinned{width:240px}
@@ -463,6 +464,7 @@ path.transition.highlight {
 .mflow-pal-layer-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mflow-pal-layer-flag{flex-shrink:0;color:var(--a3);font-size:8px}
 .mflow-pal-layer-diamond{flex-shrink:0;color:#7c8cff}
+.mflow-pal-layer-hub{flex-shrink:0;color:var(--green)}
 /* Quick preset color-dot row on the state right-click menu — reuses
    .bpmn-context-menu's own padding/font language, just adds the dot grid. */
 .mflow-menu-swatches{display:grid;grid-template-columns:repeat(3,12px);gap:8px 12px;padding:4px 10px 6px}

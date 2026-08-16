@@ -1295,6 +1295,25 @@ Also caught, in the same exchange: the original task's own phrasing ("adapted to
 - `"when it gets overdue"` on `Submitted → Under Review`: `TriangleAlert` flag with the correct explanatory tooltip, confirmed **absent** from both diagrams' rendered SVG.
 - Diamond badge on `Under Review` re-checked, unaffected. Zero console errors across every run. No file under BPMN Standard touched.
 
+### M-Files Flow: Hub badge — incoming-count mirror of the diamond badge (2026-08-16)
+
+Per explicit task: an independent auto-detect badge for 2+ incoming transitions, same mechanism as the diamond badge (which is outgoing-only), fully orthogonal — neither/either/both, cited against real Conformity's "Control Invoices" state being both at once.
+
+**Built** in the exact three places the diamond badge already lives — confirmed via grep this is `MFlowCanvas.jsx`'s `statesWithMeta`/table-panel States section and `MFlowPalette.jsx`'s Layers list, never real Studio (`CommandCenter.jsx` has no diamond badge at all, zero matches) — user's own mid-task reminder ("we are building for M-Files Flow") is what settled the brief's ambiguous "Studio's table" wording, since a literal Studio table badge would have been new scope, not parity:
+
+- `statesWithMeta` extended with `isHub`/`hubTitle` alongside the existing `isDiamond`/`diamondTitle`, same `>=2` threshold, opposite direction (`t.to === s.name` instead of `t.from`). `hubTitle` is real data: `"{n} incoming from: {source names}"`, not a generic string.
+- Table panel's own independently-computed inline block (separate from `statesWithMeta`, matching how the diamond badge was already duplicated there) got the same `isHub`/`hubTitle` calculation and a `GitMerge` badge next to the existing `Diamond` one.
+- `MFlowPalette.jsx`'s Layers row got a matching `GitMerge` badge.
+- Right-click menu got a second block mirroring the diamond block's exact shape (reused `statesWithMeta`, not recomputed; omitted when not applicable, same as the diamond's BPMN-Detach-precedent convention; source buttons reuse `panToState`, walking `t.from` instead of `t.to`) — renders independently below the diamond block when both apply.
+- New CSS: `.mflow-hub-badge`/`.mflow-pal-layer-hub`, `var(--green)` (distinct from diamond's `#7c8cff`). `GitMerge` imported from lucide-react in both files.
+
+**Verified live via `browser-automation`** (script-driven: switch to Studio, add/delete a real transition via the Transitions table's native-setter-and-dispatch pattern already established earlier this session, switch back to M-Files Flow, re-open the table panel + palette — both reset on every section-switch remount, confirmed already-known behavior, not a new bug):
+
+- Baseline (`Under Review`, seed data: 2 out/1 in) — diamond only, no hub, table panel + Layers palette both agree. `Draft` — neither (negative control).
+- Added `Approved → Under Review` (now 2 out/2 in) — **both badges present together**, table panel, Layers palette, and right-click menu (`Diamond (auto-detected)` + `Branches → Approved/→ Rejected` stacked with `Hub (auto-detected)` + `Sources ← Submitted/← Approved`) — confirmed via exact DOM/menu-text capture, not screenshot-only. Screenshot also taken, confirms clean side-by-side rendering, no overlap.
+- Deleted `Under Review → Rejected` (now 1 out/2 in) — **diamond badge/menu-block disappeared, hub badge/menu-block stayed, independently**, re-confirmed in all three surfaces plus a second screenshot. Canvas shape check: dual-signal state had a real `<polygon>` (pre-existing diamond mechanism, outgoing-driven only); after the drop, `<polygon>` gone, plain `<rect>` remained, hub badge still showing in the panels — hub confirmed never touching canvas node geometry.
+- `git diff --stat` after the edits: only `MFlowCanvas.jsx`, `MFlowPalette.jsx`, `App.jsx` (CSS) — confirms zero touch to `useMermaid.js`, `transitionGrammar.js`, or `CommandCenter.jsx`. Process Docs (BPMN Standard) loaded clean on the same run. Zero console errors, zero failed requests, across every script run.
+
 ### Session pausing here — operator back in ~4 hours (2026-08-16)
 
 **⚠ "word" is now ambiguous across THREE candidate threads, not two.** Already flagged once this session (see `BPMN_PROCESS_DOC.md` §10's own note: *"this codeword is already bound to the unrelated Conformity/M-Files investigation thread in memory... check which thread they actually mean from context before assuming"*). That covered Conformity vs. BPMN. It does not cover this session's own thread — the active M-Files Flow work (diamonds, badge, Layers palette, right-click menu, automatic-transition grammar authoring) has no codeword of its own and was never a candidate for "word" before now. **If the operator says "word" next, do not silently default to any of the three** — check the actual request/context first: Conformity/M-Files vault investigation, BPMN Standard/Process Docs polish queue, or this session's M-Files Flow thread.

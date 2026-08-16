@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Plus, Minus, Maximize2, Lock, Unlock, List, X, Diamond } from 'lucide-react';
+import { Plus, Minus, Maximize2, Lock, Unlock, List, X, Diamond, GitMerge } from 'lucide-react';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 import { useMermaid } from '../hooks/useMermaid';
 import { gatewayStyleFor, DEFAULT_CANVAS_THEME } from '../utils/canvasThemes';
@@ -590,16 +590,28 @@ export default function MFlowCanvas() {
   // (MfilesProperties.md §3.5 Decision 3), computed independently here since
   // this task's own scope is the palette list, not a refactor of the
   // already-working table code.
+  // Hub badge: same auto-detect mechanism as the diamond badge just above,
+  // measuring the opposite direction (inbound instead of outgoing). Fully
+  // independent signal — a state can be neither, either, or both (a real
+  // Conformity vault state, "Control Invoices", is both simultaneously per
+  // the task brief). No threshold behavior beyond >=2, matching the
+  // diamond's own "2+, not =2" rule.
   const statesWithMeta = (wf?.states || []).map(s => {
-    const outgoing = s.name ? wf.transitions.filter(t => t.from === s.name).length : 0;
-    const inbound = s.name ? wf.transitions.filter(t => t.to === s.name).length : 0;
+    const outgoingList = s.name ? wf.transitions.filter(t => t.from === s.name) : [];
+    const inboundList = s.name ? wf.transitions.filter(t => t.to === s.name) : [];
+    const outgoing = outgoingList.length;
+    const inbound = inboundList.length;
     const isDiamond = outgoing >= 2;
     const diamondTitle = isDiamond
       ? (inbound === 1
           ? 'Single inbound → this diamond will collapse. Its branches become direct transitions of this state — no new state is created.'
           : 'Multiple inbound → this diamond will promote to a real, separate state in the final workflow.')
       : '';
-    return { ...s, isDiamond, diamondTitle };
+    const isHub = inbound >= 2;
+    const hubTitle = isHub
+      ? `${inbound} incoming from: ${inboundList.map(t => t.from || '(unnamed)').join(', ')}`
+      : '';
+    return { ...s, isDiamond, diamondTitle, isHub, hubTitle };
   });
 
   // Palette "Layers" list click — select (same `selected` Set the table panel
@@ -834,6 +846,35 @@ export default function MFlowCanvas() {
                     </>
                   );
                 })()}
+                {(() => {
+                  // Hub mirror of the diamond block above — same reused-not-
+                  // recomputed statesWithMeta lookup, same omit-when-not-
+                  // applicable convention (BPMN's Detach precedent), same
+                  // "real data, no creation" rule. Renders independently of
+                  // the diamond block — both show together when a state is
+                  // genuinely both (verified in the dual-signal test).
+                  if (contextMenuNames.length !== 1) return null;
+                  const meta = statesWithMeta.find(s => s.name === contextMenuNames[0]);
+                  if (!meta?.isHub) return null;
+                  const sources = wf.transitions.filter(t => t.to === meta.name);
+                  return (
+                    <>
+                      <div className="bpmn-context-menu-label"><GitMerge size={9} className="mflow-hub-badge"/> Hub (auto-detected)</div>
+                      <div className="mflow-menu-diamond-info">{meta.hubTitle}</div>
+                      {sources.length > 0 && (
+                        <>
+                          <div className="bpmn-context-menu-label">Sources</div>
+                          {sources.map(t => (
+                            <button type="button" key={t.id} onClick={() => { panToState(t.from); setContextMenu(null); }}>
+                              ← {t.from || '(unnamed)'}
+                            </button>
+                          ))}
+                        </>
+                      )}
+                      <div className="bpmn-context-menu-divider"/>
+                    </>
+                  );
+                })()}
                 <button type="button" onClick={handleEditSelected} disabled={contextMenuNames.length !== 1}>✎ Edit</button>
                 <button type="button" onClick={handleDuplicateSelected}>⧉ Duplicate</button>
                 <div className="bpmn-context-menu-divider"/>
@@ -900,13 +941,21 @@ export default function MFlowCanvas() {
                     // MfilesProperties.md §3.5 Decision 3 exactly: the dividing
                     // line is the diamond's own INBOUND edge count, not its
                     // outgoing branches.
-                    const outgoing = s.name ? wf.transitions.filter(t => t.from === s.name).length : 0;
-                    const inbound = s.name ? wf.transitions.filter(t => t.to === s.name).length : 0;
+                    const outgoingRows = s.name ? wf.transitions.filter(t => t.from === s.name) : [];
+                    const inboundRows = s.name ? wf.transitions.filter(t => t.to === s.name) : [];
+                    const outgoing = outgoingRows.length;
+                    const inbound = inboundRows.length;
                     const isDiamond = outgoing >= 2;
                     const diamondTitle = isDiamond
                       ? (inbound === 1
                           ? 'Single inbound → this diamond will collapse. Its branches become direct transitions of this state — no new state is created.'
                           : 'Multiple inbound → this diamond will promote to a real, separate state in the final workflow.')
+                      : '';
+                    // Hub mirror — same >=2 threshold, opposite direction,
+                    // fully independent of the diamond check above.
+                    const isHub = inbound >= 2;
+                    const hubTitle = isHub
+                      ? `${inbound} incoming from: ${inboundRows.map(t => t.from || '(unnamed)').join(', ')}`
                       : '';
                     return (
                     <tr key={s.id} className={`mflow-clickable-row ${selected.has(s.name) ? 'sel-row' : ''}`.trim()}
@@ -915,6 +964,7 @@ export default function MFlowCanvas() {
                         <span className="mflow-table-dot" style={{ background: s.color || 'var(--mid)' }}/>
                         {s.name || <em style={{ color: 'var(--dim)' }}>(unnamed)</em>}
                         {isDiamond && <Diamond size={10} className="mflow-diamond-badge" title={diamondTitle}/>}
+                        {isHub && <GitMerge size={10} className="mflow-hub-badge" title={hubTitle}/>}
                       </td>
                       <td style={{ textAlign: 'center' }}>{s.initial ? '●' : ''}</td>
                     </tr>

@@ -1,4 +1,4 @@
-import { Plus, Play, CircleStop, Pin, PinOff, StickyNote, Diamond } from 'lucide-react';
+import { Plus, Play, CircleStop, Pin, PinOff, StickyNote, Diamond, GitMerge } from 'lucide-react';
 
 // Left-side palette for M-Files Flow — same hover-expand shell pattern as
 // BpmnPalette.jsx (44px icon rail, pin to hold it open at 240px), reused
@@ -90,6 +90,7 @@ export default function MFlowPalette({
                         <span className="mflow-pal-layer-name">{s.name || <em>(unnamed)</em>}</span>
                         {s.initial && <span className="mflow-pal-layer-flag" title="Initial state">●</span>}
                         {s.isDiamond && <Diamond size={10} className="mflow-pal-layer-diamond" title={s.diamondTitle}/>}
+                        {s.isHub && <GitMerge size={10} className="mflow-pal-layer-hub" title={s.hubTitle}/>}
                       </button>
                     ))}
                   </div>
