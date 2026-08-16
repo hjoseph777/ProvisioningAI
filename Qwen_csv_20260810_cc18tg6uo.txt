@@ -1,0 +1,11 @@
+Metric,Count,Notes
+Total properties mapped,35,One row per property
+State-category rows,18,
+Transition-category rows,17,
+🟢 Confirmed in source project,14,Rows citing §1.x
+🔵 Documented (vendor docs; unverified in source project),19,Rows citing §2.x / §3 / demonstration-status §6
+🟡 Step-1 gaps (not in either source document),2,Transition General tab Name + Description — gap G1; external vendor citation
+Mermaid-mapped — full Yes,7,"[*] initial, [*] terminal, arrow identity, TriggerMode, TriggerCriteria, TriggerInDays, TriggerAllowedByVBScript"
+Mermaid-mapped — Partial/lossy,6,"State Name (node ID); 3× Permissions methods; e-signature checkbox; AllowStateTransition (appendix body only)"
+Config-only (No §3.5 representation),22,"All state Conditions/Actions/General-desc/Advanced rows; signature meaning + association; NextStateID; identifier tabs; 🟡 rows"
+Rows with values the source doc itself declares unresolved,2,"TriggerInDays on mode-5 edges (§6.4); e-signature default meaning text (§6.2/§6.5)"

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Interop.MFilesAPI" Version="21.4.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\provisioningai-backend\ProvisioningAI.Discovery\ProvisioningAI.Discovery.csproj" />
+    <ProjectReference Include="..\provisioningai-backend\ProvisioningAI.Data\ProvisioningAI.Data.csproj" />
+    <ProjectReference Include="..\provisioningai-backend\ProvisioningAI.MFilesConnectors\ProvisioningAI.MFilesConnectors.csproj" />
+  </ItemGroup>
+
+</Project>

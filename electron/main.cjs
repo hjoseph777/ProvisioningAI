@@ -17,12 +17,13 @@ function createWindow () {
     height:    900,
     minWidth:  1100,
     minHeight: 700,
+    icon:      path.join(__dirname, 'app-icon.ico'),
     webPreferences: {
       preload:          path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration:  false,
     },
-    title:           'Proviso — Workflow Ingestion',
+    title:           'ProvisioningAI — Workflow Ingestion',
     autoHideMenuBar: true,
   });
 
@@ -96,7 +97,7 @@ ipcMain.handle('mfiles:push', async (event, payload) => {
     licenseType = 0,
   } = payload;
 
-  const tmpFile = path.join(os.tmpdir(), `proviso-wf-${Date.now()}.json`);
+  const tmpFile = path.join(os.tmpdir(), `provisioningai-wf-${Date.now()}.json`);
   await writeFile(tmpFile, JSON.stringify(json, null, 2), 'utf8');
 
   const send = (line) => {

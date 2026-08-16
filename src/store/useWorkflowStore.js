@@ -2,65 +2,78 @@ import { create } from 'zustand';
 
 const makeId = () => Math.random().toString(36).slice(2, 9);
 
-// ── Starting workflows ──────────────────────────────────────────
-// Tab 1: Service Agreement — real domain workflow, diagram visible on load
-// Tab 2: Workflow A · 25 States — empty placeholder for 🔥 Low stress test
-// Tab 3: Workflow B · 100 States — empty placeholder for 🔥🔥 Max stress test
+// ── Starting workflow ────────────────────────────────────────────
+// Rebuilt 2026-08-15 — the prior Service Agreement seed (12 states, 16
+// transitions, some with legacy color/theme overrides) was removed and
+// replaced with a genuinely minimal example: plain states, plain
+// transitions, no color/group/theme overrides on the data itself. This
+// matches the State+Transition-only model M-Files Flow's palette actually
+// produces (see studio_minimal_state_transition_model.md, project memory)
+// — the seed data should look like something the palette itself could have
+// built, not a richer example the palette can't reproduce.
 
-const SERVICE_AGREEMENT = {
-  id: 'wf-sa',
-  name: 'Service Agreement',
+const DOCUMENT_APPROVAL = {
+  id: 'wf-da',
+  name: 'Document Approval',
   states: [
-    { id: 'sa01', name: 'Draft',              initial: true  },
-    { id: 'sa02', name: 'Under Review',       initial: false },
-    { id: 'sa03', name: 'Reviewed',           initial: false },
-    { id: 'sa04', name: 'Pending Approval',   initial: false },
-    { id: 'sa05', name: 'Approved',           initial: false },
-    { id: 'sa06', name: 'Pending Signature',  initial: false },
-    { id: 'sa07', name: 'Signed',             initial: false },
-    { id: 'sa08', name: 'Active',             initial: false },
-    { id: 'sa09', name: 'Expiring Soon',      initial: false },
-    { id: 'sa10', name: 'Expired',            initial: false },
-    { id: 'sa11', name: 'Terminated',         initial: false },
-    { id: 'sa12', name: 'Discarded',          initial: false },
+    { id: 'da01', name: 'Draft',         initial: true  },
+    { id: 'da02', name: 'Submitted',     initial: false },
+    { id: 'da03', name: 'Under Review',  initial: false },
+    { id: 'da04', name: 'Approved',      initial: false },
+    { id: 'da05', name: 'Rejected',      initial: false },
+    { id: 'da06', name: 'Closed',        initial: false },
   ],
   transitions: [
-    { id: 'st01', from: 'Draft',             to: 'Under Review',      conditions: null, permissions: null },
-    { id: 'st02', from: 'Under Review',      to: 'Draft',             conditions: null, permissions: null },
-    { id: 'st03', from: 'Under Review',      to: 'Reviewed',          conditions: null, permissions: null },
-    { id: 'st04', from: 'Reviewed',          to: 'Pending Approval',  conditions: null, permissions: null },
-    { id: 'st05', from: 'Pending Approval',  to: 'Under Review',      conditions: null, permissions: null },
-    { id: 'st06', from: 'Pending Approval',  to: 'Approved',          conditions: null, permissions: null },
-    { id: 'st07', from: 'Approved',          to: 'Pending Signature', conditions: null, permissions: null },
-    { id: 'st08', from: 'Pending Signature', to: 'Draft',             conditions: null, permissions: null },
-    { id: 'st09', from: 'Pending Signature', to: 'Signed',            conditions: null, permissions: null },
-    { id: 'st10', from: 'Signed',            to: 'Active',            conditions: null, permissions: null },
-    { id: 'st11', from: 'Active',            to: 'Expiring Soon',     conditions: null, permissions: null },
-    { id: 'st12', from: 'Expiring Soon',     to: 'Active',            conditions: null, permissions: null },
-    { id: 'st13', from: 'Expiring Soon',     to: 'Expired',           conditions: null, permissions: null },
-    { id: 'st14', from: 'Active',            to: 'Terminated',        conditions: null, permissions: null },
-    { id: 'st15', from: 'Draft',             to: 'Discarded',         conditions: null, permissions: null },
-    { id: 'st16', from: 'Under Review',      to: 'Discarded',         conditions: null, permissions: null },
+    { id: 'ta01', from: 'Draft',        to: 'Submitted',    conditions: null, permissions: null },
+    { id: 'ta02', from: 'Submitted',    to: 'Under Review', conditions: null, permissions: null },
+    { id: 'ta03', from: 'Under Review', to: 'Approved',     conditions: null, permissions: null },
+    { id: 'ta04', from: 'Under Review', to: 'Rejected',     conditions: null, permissions: null },
+    { id: 'ta05', from: 'Rejected',     to: 'Draft',        conditions: null, permissions: null },
+    { id: 'ta06', from: 'Approved',     to: 'Closed',       conditions: null, permissions: null },
   ],
+  groups: [],
+  theme: 'neutral',
+  // Comments/status boxes — freestanding, colored annotations positioned on
+  // the canvas but NOT part of the state machine (no from/to, never
+  // exported/translated to M-Files). M-Files Flow only, added per the
+  // user's explicit "status box outside the workflow, for comments" ask.
+  comments: [],
 };
 
 const fresh = () => ({
   workflows: [
-    JSON.parse(JSON.stringify(SERVICE_AGREEMENT)),
+    JSON.parse(JSON.stringify(DOCUMENT_APPROVAL)),
   ],
-  activeId:   'wf-sa',
+  activeId:   'wf-da',
   users:      [],
   properties: [],
   rules:      [],
   hoveredState: null,
   hoveredTransition: null,
   cmdPaletteOpen: false,
+  // Snapshot-based undo/redo — same pattern useBpmnStore.js already proved
+  // out (push the whole {workflows} pair before each mutating action, not a
+  // diff/reducer). Added for M-Files Flow's right-click Undo/Redo; nothing
+  // in Studio calls takeSnapshot() yet, so this is purely additive — Studio
+  // behaves exactly as it did before until/unless it's explicitly wired in.
+  history: { past: [], future: [] },
 });
+
+// Connection settings + activeSection are shell-level, not part of workflow data —
+// resetAll() must not touch them, so they live outside fresh().
+const shellDefaults = {
+  activeSection: 'studio',
+  mfServer: 'localhost',
+  mfVault: '{E7E445BE-3AEF-425F-9D4D-BFCC33008C9E}',
+  mfAuth: 'windows',
+  studioResetHandler: null,
+};
 
 
 // ── Store ─────────────────────────────────────────────────────
 export const useWorkflowStore = create((set, get) => ({
   ...fresh(),
+  ...shellDefaults,
   setHoveredState: (name) => set({ hoveredState: name }),
   setHoveredTransition: (from, to) => {
     if (!from || !to) {
@@ -71,6 +84,50 @@ export const useWorkflowStore = create((set, get) => ({
   },
   setCmdPaletteOpen: (open) => set({ cmdPaletteOpen: open }),
 
+  // ── Undo/redo — snapshot-based, same convention as useBpmnStore.js.
+  // Callers take the snapshot themselves, right before the mutation they
+  // want to be undoable (see MFlowCanvas.jsx's context-menu actions and
+  // drag-end handler) — this store doesn't call it automatically from
+  // every action, so per-keystroke interactions (typing a comment, dragging
+  // a color slider) don't flood history unless a caller explicitly opts in. ──
+  takeSnapshot: () => set(s => ({
+    history: {
+      past: [...s.history.past.slice(-99), { workflows: s.workflows }],
+      future: [], // a new action invalidates whatever redo path existed
+    },
+  })),
+  undo: () => set(s => {
+    const prev = s.history.past[s.history.past.length - 1];
+    if (!prev) return s;
+    return {
+      workflows: prev.workflows,
+      history: {
+        past: s.history.past.slice(0, -1),
+        future: [...s.history.future, { workflows: s.workflows }],
+      },
+    };
+  }),
+  redo: () => set(s => {
+    const next = s.history.future[s.history.future.length - 1];
+    if (!next) return s;
+    return {
+      workflows: next.workflows,
+      history: {
+        past: [...s.history.past, { workflows: s.workflows }],
+        future: s.history.future.slice(0, -1),
+      },
+    };
+  }),
+
+  // ── Shell: section nav + vault connection (survives resetAll) ──
+  setActiveSection: (id) => set({ activeSection: id }),
+  setMfServer: (server) => set({ mfServer: server }),
+  setMfVault: (vault) => set({ mfVault: vault }),
+  setMfAuth: (auth) => set({ mfAuth: auth }),
+  // Studio registers its own handleReset here so the shell's Reset button
+  // (rendered outside Studio) can trigger it without lifting Studio's local UI state.
+  setStudioResetHandler: (fn) => set({ studioResetHandler: fn }),
+
   // ── Selectors ──────────────────────────────────────────────
   getActive: () => {
     const { workflows, activeId } = get();
@@ -79,7 +136,7 @@ export const useWorkflowStore = create((set, get) => ({
 
   // ── Workflow CRUD ──────────────────────────────────────────
   addWorkflow: () => {
-    const wf = { id: makeId(), name: 'New Workflow', states: [], transitions: [] };
+    const wf = { id: makeId(), name: 'New Workflow', states: [], transitions: [], groups: [], theme: 'neutral', comments: [] };
     set(s => ({ workflows: [...s.workflows, wf], activeId: wf.id }));
   },
   deleteWorkflow: (id) => set(s => {
@@ -93,9 +150,9 @@ export const useWorkflowStore = create((set, get) => ({
   })),
   setActive: (id) => set({ activeId: id }),
 
-  // Clears only states + transitions of one workflow — keeps name, keeps other tabs
+  // Clears states + transitions + comments of one workflow — keeps name, keeps other tabs
   clearWorkflow: (wfId) => set(s => ({
-    workflows: s.workflows.map(w => w.id !== wfId ? w : { ...w, states: [], transitions: [] })
+    workflows: s.workflows.map(w => w.id !== wfId ? w : { ...w, states: [], transitions: [], comments: [] })
   })),
 
   // Stress-test seeder — creates a NEW temporary workflow tab pre-loaded with data.
@@ -133,20 +190,34 @@ export const useWorkflowStore = create((set, get) => ({
       name: `${label} Stress ${N}`,
       states,
       transitions,
+      groups: [],
+      theme: 'neutral',
+      comments: [],
     };
     set(s => ({ workflows: [...s.workflows, wf], activeId: wf.id }));
   },
 
   // ── State CRUD ─────────────────────────────────────────────
-  addState: (wfId) => set(s => ({
+  // Optional patch lets callers (e.g. the palette's "+ Initial State" tile)
+  // set fields on the new state without a separate updateState round-trip.
+  addState: (wfId, patch = {}) => set(s => ({
     workflows: s.workflows.map(w => w.id !== wfId ? w : {
-      ...w, states: [...w.states, { id: makeId(), name: '', initial: false }]
+      ...w, states: [...w.states, { id: makeId(), name: '', initial: false, ...patch }]
     })
   })),
 
   updateState: (wfId, stateId, patch) => set(s => ({
     workflows: s.workflows.map(w => w.id !== wfId ? w : {
       ...w, states: w.states.map(st => st.id !== stateId ? st : { ...st, ...patch })
+    })
+  })),
+
+  // Persists a manually-dragged node position on the Live Diagram canvas.
+  // null x/y (never set) means "let Mermaid auto-layout this node" — the
+  // diagram renderer only overrides a node's transform when x/y are present.
+  updateStatePosition: (wfId, stateId, x, y) => set(s => ({
+    workflows: s.workflows.map(w => w.id !== wfId ? w : {
+      ...w, states: w.states.map(st => st.id !== stateId ? st : { ...st, x, y })
     })
   })),
 
@@ -184,6 +255,46 @@ export const useWorkflowStore = create((set, get) => ({
     return { ok: true };
   },
 
+  // Clones a state's own fields (color etc.) but not its transitions — same
+  // "duplicate doesn't bring edges along" convention BPMN's own duplicateNode
+  // uses. Not marked initial even if the original was, so duplicating never
+  // silently creates a second initial state. Returns the new state's id.
+  duplicateState: (wfId, stateId) => {
+    const wf = get().workflows.find(w => w.id === wfId);
+    const orig = wf?.states.find(s => s.id === stateId);
+    if (!orig) return null;
+    const newId = makeId();
+    const newState = {
+      ...orig, id: newId, initial: false,
+      name: orig.name ? `${orig.name} copy` : '',
+      x: orig.x != null ? orig.x + 30 : orig.x,
+      y: orig.y != null ? orig.y + 30 : orig.y,
+    };
+    set(s => ({
+      workflows: s.workflows.map(w => w.id !== wfId ? w : { ...w, states: [...w.states, newState] })
+    }));
+    return newId;
+  },
+
+  // ── Comment/status-box CRUD (M-Files Flow only — freestanding canvas
+  // annotations, not state-machine data; see the `comments` field comment
+  // on DOCUMENT_APPROVAL above) ────────────────────────────────
+  addComment: (wfId, position = { x: 40, y: 40 }, color = '#e07b1a') => set(s => ({
+    workflows: s.workflows.map(w => w.id !== wfId ? w : {
+      ...w, comments: [...(w.comments || []), { id: makeId(), text: 'Status', color, x: position.x, y: position.y }]
+    })
+  })),
+  updateComment: (wfId, commentId, patch) => set(s => ({
+    workflows: s.workflows.map(w => w.id !== wfId ? w : {
+      ...w, comments: (w.comments || []).map(c => c.id !== commentId ? c : { ...c, ...patch })
+    })
+  })),
+  deleteComment: (wfId, commentId) => set(s => ({
+    workflows: s.workflows.map(w => w.id !== wfId ? w : {
+      ...w, comments: (w.comments || []).filter(c => c.id !== commentId)
+    })
+  })),
+
   // ── Transition CRUD ────────────────────────────────────────
   addTransition: (wfId) => set(s => ({
     workflows: s.workflows.map(w => w.id !== wfId ? w : {
@@ -201,6 +312,43 @@ export const useWorkflowStore = create((set, get) => ({
   deleteTransition: (wfId, transId) => set(s => ({
     workflows: s.workflows.map(w => w.id !== wfId ? w : {
       ...w, transitions: w.transitions.filter(t => t.id !== transId)
+    })
+  })),
+
+  // Persists a manually-dragged bend point on a transition arrow (Live Diagram
+  // canvas) — the arrow routes through this point instead of Mermaid's default
+  // straight/auto-curved line. null bend (never set) means "let Mermaid draw it."
+  updateTransitionBend: (wfId, transId, x, y) => set(s => ({
+    workflows: s.workflows.map(w => w.id !== wfId ? w : {
+      ...w, transitions: w.transitions.map(t => t.id !== transId ? t : { ...t, bend: { x, y } })
+    })
+  })),
+
+  // Sets which diamond variant a gateway (a group value shared by 2+ transitions'
+  // "from" states, per gatewayGroups.js) renders as. Deliberately keyed on the group
+  // id itself, not a transition — the task's own model is "a single choice made once
+  // per gateway," not a per-row setting. Upserts: replaces any existing entry for
+  // this group id, or adds a new one.
+  setGroupType: (wfId, groupId, type) => set(s => ({
+    workflows: s.workflows.map(w => w.id !== wfId ? w : {
+      ...w, groups: [...(w.groups || []).filter(g => g.id !== groupId), { id: groupId, type }]
+    })
+  })),
+
+  // Canvas color theme (canvasThemes.js) — workflow-level, same "one choice, not
+  // per-node" pattern as setGroupType above.
+  setWorkflowTheme: (wfId, theme) => set(s => ({
+    workflows: s.workflows.map(w => w.id !== wfId ? w : { ...w, theme })
+  })),
+
+  // Clears every dragged node position and bent edge for one workflow's
+  // diagram, so it falls back to Mermaid's own auto-layout on next render.
+  // Does not touch states/transitions data itself, only their layout overrides.
+  resetDiagramLayout: (wfId) => set(s => ({
+    workflows: s.workflows.map(w => w.id !== wfId ? w : {
+      ...w,
+      states: w.states.map(st => { const { x, y, ...rest } = st; return rest; }),
+      transitions: w.transitions.map(t => { const { bend, ...rest } = t; return rest; }),
     })
   })),
 
@@ -239,6 +387,9 @@ export const useWorkflowStore = create((set, get) => ({
       name:        workflow.name || 'Imported Workflow',
       states:      (workflow.states      || []).map(s => ({ id: makeId(), ...s })),
       transitions: (workflow.transitions || []).map(t => ({ id: makeId(), ...t })),
+      groups:      [],
+      theme:       'neutral',
+      comments:    [],
     };
     set(s => ({
       workflows:  [...s.workflows, wf],
@@ -261,6 +412,9 @@ export const useWorkflowStore = create((set, get) => ({
       importedAt:  mfData.importedAt,
       states:      (mfData.states || []).map(s => ({ id: makeId(), ...s })),
       transitions: (mfData.transitions || []).map(t => ({ id: makeId(), ...t })),
+      groups:      [],
+      theme:       'neutral',
+      comments:    [],
     };
     set(s => {
       // Extract texts from rules and scripts to save to global rules

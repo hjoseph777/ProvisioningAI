@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Interactive Editor — Compact Palette + Worked Example</title>
+<style>
+  :root{
+    --bg:#0f1117; --panel:#161923; --border:#2a2f3d;
+    --text:#e6e9f0; --text-muted:#8b93a7; --text-faint:#5c6478;
+  }
+  *{box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;margin:0;padding:26px;}
+  h1{font-size:1.1rem;margin:0 0 4px;}
+  .sub{color:var(--text-muted);font-size:0.85rem;margin:0 0 20px;max-width:760px;}
+
+  .wrap{display:flex;gap:0;border:0.5px solid var(--border);border-radius:12px;overflow:hidden;max-width:980px;height:600px;}
+
+  /* PALETTE */
+  .palette{width:220px;background:var(--panel);border-right:0.5px solid var(--border);padding:16px 14px;flex-shrink:0;overflow-y:auto;}
+  .pal-label{font-size:10px;font-weight:600;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.05em;margin:16px 0 8px;}
+  .pal-label:first-child{margin-top:0;}
+  .tilerow{display:flex;gap:6px;flex-wrap:wrap;}
+  .tile{position:relative;width:40px;height:40px;border:0.5px solid var(--border);border-radius:8px;background:#1b1f2b;display:flex;align-items:center;justify-content:center;cursor:grab;}
+  .tile:hover{border-color:#5a6480;background:#20242f;}
+  .tile .tip{
+    position:absolute;bottom:46px;left:50%;transform:translateX(-50%);
+    width:190px;background:#25293a;border:0.5px solid #3a4055;border-radius:7px;
+    padding:8px 10px;font-size:10.5px;line-height:1.5;color:#c9cfdd;
+    opacity:0;pointer-events:none;transition:opacity .12s;z-index:10;
+    box-shadow:0 6px 20px rgba(0,0,0,.4);
+  }
+  .tile .tip b{color:#fff;display:block;margin-bottom:3px;font-size:11px;}
+  .tile:hover .tip{opacity:1;}
+  .tip .cosmetic-flag{color:#e0b84a;}
+
+  /* CANVAS */
+  .canvas-wrap{flex:1;display:flex;flex-direction:column;background:#fff;}
+  .canvas-head{padding:8px 14px;border-bottom:0.5px solid #d8dbe3;font-size:11px;color:#6b7280;background:#fafbfc;}
+  .canvas{flex:1;background-image:linear-gradient(#eef0f4 1px, transparent 1px),linear-gradient(90deg, #eef0f4 1px, transparent 1px);background-size:18px 18px;overflow:auto;}
+</style>
+</head>
+<body>
+
+<h1>Interactive editor — compact palette + worked example (open item 3)</h1>
+<p class="sub">Icon-only tiles, grouped, details on hover. The canvas is a generic (redacted) slice of the Cacoo-shaped process, built using nothing but the palette on the left — proof of coverage, not an assertion of it.</p>
+
+<div class="wrap">
+  <div class="palette">
+
+    <div class="pal-label">States</div>
+    <div class="tilerow">
+      <div class="tile"><svg width="22" height="16"><rect x="1" y="1" width="20" height="14" rx="3" fill="none" stroke="#aab2c5" stroke-width="1.3"/></svg>
+        <div class="tip"><b>State</b>→ M-Files State</div></div>
+      <div class="tile"><svg width="22" height="14"><rect x="1" y="2" width="20" height="10" rx="5" fill="none" stroke="#aab2c5" stroke-width="1.3"/></svg>
+        <div class="tip"><b>Start</b>→ State, IsInitial: true. Renders as an ordinary box in Mermaid — no stadium shape exists; pill is a palette hint.</div></div>
+      <div class="tile"><svg width="22" height="14"><rect x="1" y="2" width="20" height="10" rx="5" fill="none" stroke="#aab2c5" stroke-width="1.3"/><circle cx="11" cy="7" r="2" fill="#aab2c5"/></svg>
+        <div class="tip"><b>End</b>→ State, IsTerminal: true. Same shape caveat as Start.</div></div>
+      <div class="tile"><svg width="22" height="16"><rect x="1" y="1" width="20" height="14" rx="3" fill="none" stroke="#e0b84a" stroke-width="1.3"/><line x1="5.5" y1="1" x2="5.5" y2="15" stroke="#e0b84a"/><line x1="16.5" y1="1" x2="16.5" y2="15" stroke="#e0b84a"/></svg>
+        <div class="tip"><b>Predefined process</b><span class="cosmetic-flag">cosmetic</span> — flags an external-system handoff; still an ordinary State.</div></div>
+    </div>
+    <div class="tilerow" style="margin-top:6px;">
+      <div class="tile"><svg width="22" height="16"><rect x="1" y="1" width="20" height="14" rx="3" fill="none" stroke="#aab2c5" stroke-width="1.3"/><circle cx="18" cy="12" r="3.4" fill="#0e7c6b" stroke="#0b0d13" stroke-width="1"/></svg>
+        <div class="tip"><b>State (color)</b><span class="cosmetic-flag">cosmetic</span> — colors the State itself as its own identity (the "Fermé" pattern), via classDef. Pick any color.</div></div>
+    </div>
+
+    <div class="pal-label">Transition</div>
+    <div class="tilerow">
+      <div class="tile"><svg width="24" height="14"><line x1="1" y1="7" x2="18" y2="7" stroke="#aab2c5" stroke-width="1.3"/><path d="M13,3 L20,7 L13,11" fill="none" stroke="#aab2c5" stroke-width="1.3"/></svg>
+        <div class="tip"><b>Edge / label</b>→ Transition, fields per §3.5 grammar</div></div>
+      <div class="tile"><svg width="24" height="14"><line x1="1" y1="7" x2="18" y2="7" stroke="#7fb2e6" stroke-width="1.3" stroke-dasharray="3,2"/><path d="M13,3 L20,7 L13,11" fill="none" stroke="#7fb2e6" stroke-width="1.3"/></svg>
+        <div class="tip"><b>Automatic hint</b>Inserts a solid arrow + after()/if()/script() label. Mermaid can't render dashed itself — dashes shown only in the M-Files panel.</div></div>
+    </div>
+
+    <div class="pal-label">Connector style</div>
+    <div class="tilerow">
+      <div class="tile"><svg width="24" height="20"><path d="M4,3 L4,10 L20,10" fill="none" stroke="#aab2c5" stroke-width="1.3"/><path d="M16,7 L21,10 L16,13" fill="none" stroke="#aab2c5" stroke-width="1.3"/></svg>
+        <div class="tip"><b>Orthogonal (square)</b><span class="cosmetic-flag">cosmetic</span> — right-angle bends, Cacoo's default. No effect on plan.</div></div>
+      <div class="tile"><svg width="24" height="20"><path d="M4,4 L20,16" fill="none" stroke="#aab2c5" stroke-width="1.3"/><path d="M15,13 L21,16 L18,10" fill="none" stroke="#aab2c5" stroke-width="1.3"/></svg>
+        <div class="tip"><b>Straight</b><span class="cosmetic-flag">cosmetic</span> — direct diagonal line. No effect on plan.</div></div>
+      <div class="tile"><svg width="24" height="20"><path d="M4,4 Q4,16 20,14" fill="none" stroke="#aab2c5" stroke-width="1.3"/><path d="M15,10 L21,14 L16,18" fill="none" stroke="#aab2c5" stroke-width="1.3"/></svg>
+        <div class="tip"><b>Curved</b><span class="cosmetic-flag">cosmetic</span> — smooth bezier. No effect on plan.</div></div>
+    </div>
+
+    <div class="pal-label">Decision nodes</div>
+    <div class="tilerow">
+      <div class="tile">
+        <svg width="26" height="26" viewBox="0 0 26 26">
+          <polygon points="13,1 25,13 13,25 1,13" fill="#1e2340" stroke="#7c8cff" stroke-width="1.4"/>
+          <circle cx="10.5" cy="10" r="2.2" fill="#7c8cff"/>
+          <path d="M6.5,17 Q6.5,13.4 10.5,13.4 Q14.5,13.4 14.5,17" fill="#7c8cff"/>
+          <circle cx="16.3" cy="10.7" r="1.7" fill="#7c8cff" opacity="0.75"/>
+          <path d="M13.3,17 Q13.3,14.1 16.3,14.1 Q19,14.1 19,17" fill="#7c8cff" opacity="0.75"/>
+        </svg>
+        <div class="tip"><b>Decision hub</b>→ &lt;&lt;choice&gt;&gt;, role() branches — human, exclusive choice</div></div>
+      <div class="tile">
+        <svg width="26" height="26" viewBox="0 0 26 26">
+          <polygon points="13,1 25,13 13,25 1,13" fill="none" stroke="#9aa2b8" stroke-width="1.4"/>
+          <g transform="translate(13,13)" fill="#9aa2b8">
+            <circle r="4" fill="none" stroke="#9aa2b8" stroke-width="1.5"/>
+            <circle r="1.4" fill="#9aa2b8"/>
+            <rect x="-0.9" y="-6.5" width="1.8" height="2.4" transform="rotate(0)"/>
+            <rect x="-0.9" y="-6.5" width="1.8" height="2.4" transform="rotate(45)"/>
+            <rect x="-0.9" y="-6.5" width="1.8" height="2.4" transform="rotate(90)"/>
+            <rect x="-0.9" y="-6.5" width="1.8" height="2.4" transform="rotate(135)"/>
+            <rect x="-0.9" y="-6.5" width="1.8" height="2.4" transform="rotate(180)"/>
+            <rect x="-0.9" y="-6.5" width="1.8" height="2.4" transform="rotate(225)"/>
+            <rect x="-0.9" y="-6.5" width="1.8" height="2.4" transform="rotate(270)"/>
+            <rect x="-0.9" y="-6.5" width="1.8" height="2.4" transform="rotate(315)"/>
+          </g>
+        </svg>
+        <div class="tip"><b>Automatic hub</b>→ &lt;&lt;choice&gt;&gt;, if()/after()/script() branches — independent, priority-raced</div></div>
+    </div>
+
+    <div class="pal-label">Status annotation</div>
+    <div class="tilerow">
+      <div class="tile"><svg width="22" height="16"><rect x="1" y="1" width="20" height="14" rx="3" fill="none" stroke="#aab2c5" stroke-width="1.3"/><line x1="4" y1="9" x2="18" y2="9" stroke="#aab2c5" stroke-width="1"/><circle cx="18" cy="12" r="3.4" fill="#c0392b" stroke="#0b0d13" stroke-width="1"/></svg>
+        <div class="tip"><b>Status badge</b><span class="cosmetic-flag">cosmetic</span> — free-text floating caption near a state, doesn't touch its fill. Pick any color.</div></div>
+    </div>
+
+  </div>
+
+  <div class="canvas-wrap">
+    <div class="canvas-head">Worked example — generic slice, built from the palette only (redacted, no real vault or client names)</div>
+    <div class="canvas">
+      <svg width="100%" height="560" viewBox="0 0 920 560">
+        <defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M1 1L8 5L1 9" fill="none" stroke="#666"/></marker></defs>
+
+        <!-- Start -->
+        <rect x="20" y="20" width="70" height="26" rx="13" fill="#fff" stroke="#555"/>
+        <text x="55" y="37" text-anchor="middle" font-size="10.5" fill="#222">Start</text>
+
+        <!-- Intake state -->
+        <path d="M90,33 L128,33" stroke="#666" marker-end="url(#a)"/>
+        <rect x="130" y="18" width="90" height="30" rx="4" fill="#eee5c8" stroke="#8a7f5a"/>
+        <text x="175" y="37" text-anchor="middle" font-size="10.5" fill="#222">Intake</text>
+
+        <!-- dashed automatic edge to automatic hub -->
+        <path d="M175,48 L175,86" stroke="#666" stroke-dasharray="4,3" marker-end="url(#a)"/>
+
+        <!-- Automatic hub -->
+        <polygon points="175,90 205,120 175,150 145,120" fill="none" stroke="#8a7f5a" stroke-width="1.6"/>
+        <text x="175" y="124" text-anchor="middle" font-size="10" fill="#8a7f5a">⚙</text>
+
+        <!-- branch OUI -->
+        <path d="M195,135 L280,175" stroke="#666" marker-end="url(#a)"/>
+        <text x="215" y="163" font-size="9.5" fill="#555">OUI</text>
+        <rect x="282" y="160" width="110" height="30" rx="4" fill="#eee5c8" stroke="#8a7f5a"/>
+        <text x="337" y="179" text-anchor="middle" font-size="10" fill="#222">Route: pending</text>
+
+        <!-- status badge above pending -->
+        <rect x="282" y="130" width="110" height="20" rx="3" fill="#e07b1a"/>
+        <text x="337" y="144" text-anchor="middle" font-size="9.5" fill="#fff" font-weight="bold">Préfacture-style</text>
+
+        <!-- branch NON -->
+        <path d="M155,135 L60,220" stroke="#666" marker-end="url(#a)"/>
+        <text x="90" y="180" font-size="9.5" fill="#555">NON</text>
+        <rect x="15" y="222" width="110" height="30" rx="4" fill="#eee5c8" stroke="#8a7f5a"/>
+        <text x="70" y="241" text-anchor="middle" font-size="10" fill="#222">Route: reprocess</text>
+
+        <!-- pending -> Decision hub -->
+        <path d="M392,175 L440,175" stroke="#666" marker-end="url(#a)"/>
+        <polygon points="470,145 510,175 470,205 430,175" fill="#eee7fa" stroke="#7c8cff" stroke-width="1.6"/>
+        <text x="470" y="180" text-anchor="middle" font-size="10" fill="#7c8cff">👥</text>
+
+        <!-- decision hub branches -->
+        <path d="M460,195 L400,300" stroke="#666" marker-end="url(#a)"/>
+        <text x="410" y="250" font-size="9.5" fill="#555">role(Reviewer)</text>
+        <rect x="345" y="302" width="110" height="30" rx="4" fill="#eee5c8" stroke="#8a7f5a"/>
+        <text x="400" y="321" text-anchor="middle" font-size="10" fill="#222">Correction step</text>
+
+        <!-- retry loop back to hub -->
+        <path d="M455,302 Q560,260 505,190" stroke="#666" fill="none" marker-end="url(#a)"/>
+        <text x="560" y="240" font-size="9.5" fill="#555">after resubmit</text>
+
+        <path d="M480,195 L560,300" stroke="#666" marker-end="url(#a)"/>
+        <text x="520" y="250" font-size="9.5" fill="#555">role(Reviewer)</text>
+        <rect x="505" y="302" width="110" height="30" rx="4" fill="#eee5c8" stroke="#8a7f5a"/>
+        <text x="560" y="321" text-anchor="middle" font-size="10" fill="#222">Rejected</text>
+
+        <path d="M500,150 L680,110" stroke="#666" marker-end="url(#a)"/>
+        <text x="600" y="115" font-size="9.5" fill="#555">role(Reviewer)+esign</text>
+
+        <!-- Predefined process (external handoff) -->
+        <rect x="682" y="90" width="110" height="40" rx="4" fill="#eee5c8" stroke="#8a7f5a"/>
+        <line x1="694" y1="90" x2="694" y2="130" stroke="#8a7f5a"/>
+        <line x1="768" y1="90" x2="768" y2="130" stroke="#8a7f5a"/>
+        <text x="731" y="106" text-anchor="middle" font-size="9.5" fill="#222">External payment</text>
+        <text x="731" y="120" text-anchor="middle" font-size="9.5" fill="#222">process</text>
+
+        <!-- recolored terminal state -->
+        <path d="M792,110 L840,110" stroke="#666" marker-end="url(#a)"/>
+        <rect x="842" y="95" width="70" height="30" rx="4" fill="#0e7c6b" stroke="#12a58e"/>
+        <text x="877" y="114" text-anchor="middle" font-size="10.5" fill="#fff" font-weight="bold">Closed</text>
+
+        <!-- End -->
+        <path d="M877,125 L877,190" stroke="#666" marker-end="url(#a)"/>
+        <rect x="842" y="192" width="70" height="26" rx="13" fill="#fff" stroke="#555"/>
+        <circle cx="877" cy="205" r="3" fill="#555"/>
+        <text x="877" y="230" text-anchor="middle" font-size="9.5" fill="#666">End</text>
+
+      </svg>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useWorkflowStore } from '../store/useWorkflowStore';
+import { SECTIONS } from './sections';
 
 export default function CommandPalette() {
-  const { 
-    workflows, activeId, setActive, 
+  const {
+    workflows, activeId, setActive,
     cmdPaletteOpen, setCmdPaletteOpen,
+    setActiveSection,
     exportJSON
   } = useWorkflowStore();
   
@@ -40,7 +42,18 @@ export default function CommandPalette() {
 
   // Compile list of searchable items
   const items = [];
-  
+
+  // 0. Sections — gated sections still navigate, landing on their empty state
+  SECTIONS.forEach(sec => {
+    const Icon = sec.icon;
+    items.push({
+      type: 'Section',
+      icon: <Icon size={14} strokeWidth={2} />,
+      text: `Go to: ${sec.label}`,
+      action: () => setActiveSection(sec.id)
+    });
+  });
+
   // 1. Workflows
   workflows.forEach(w => {
     items.push({

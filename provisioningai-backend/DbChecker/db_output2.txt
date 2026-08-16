@@ -1,0 +1,127 @@
+﻿
+--- PRAGMA foreign_keys; ---
+1
+
+--- .schema ---
+CREATE TABLE "__EFMigrationsHistory" (
+    "MigrationId" TEXT NOT NULL CONSTRAINT "PK___EFMigrationsHistory" PRIMARY KEY,
+    "ProductVersion" TEXT NOT NULL
+);
+
+CREATE TABLE "VaultStructures" (
+    "Id" INTEGER NOT NULL CONSTRAINT "PK_VaultStructures" PRIMARY KEY AUTOINCREMENT,
+    "VaultGuid" TEXT NOT NULL,
+    "VaultName" TEXT NOT NULL,
+    "LastScannedAt" TEXT NOT NULL,
+    CONSTRAINT "AK_VaultStructures_VaultGuid" UNIQUE ("VaultGuid")
+);
+
+CREATE TABLE sqlite_sequence(name,seq);
+
+CREATE TABLE "AuditLogs" (
+    "AuditId" INTEGER NOT NULL CONSTRAINT "PK_AuditLogs" PRIMARY KEY AUTOINCREMENT,
+    "VaultGuid" TEXT NOT NULL,
+    "VaultName" TEXT NOT NULL,
+    "Timestamp" TEXT NOT NULL,
+    "User" TEXT NOT NULL,
+    "Action" TEXT NOT NULL,
+    "ResourceType" TEXT NULL,
+    "ResourceId" TEXT NULL,
+    "DetailsJson" TEXT NULL,
+    "Severity" TEXT NOT NULL,
+    CONSTRAINT "FK_AuditLogs_VaultStructures_VaultGuid" FOREIGN KEY ("VaultGuid") REFERENCES "VaultStructures" ("VaultGuid") ON DELETE CASCADE
+);
+
+CREATE TABLE "DiscoveryScans" (
+    "ScanId" INTEGER NOT NULL CONSTRAINT "PK_DiscoveryScans" PRIMARY KEY AUTOINCREMENT,
+    "VaultGuid" TEXT NOT NULL,
+    "VaultName" TEXT NOT NULL,
+    "StartedAt" TEXT NOT NULL,
+    "CompletedAt" TEXT NULL,
+    "ObjectsFound" INTEGER NOT NULL,
+    "IntegrationsFound" INTEGER NOT NULL,
+    "ConflictsDetectedJson" TEXT NULL,
+    "Status" TEXT NOT NULL,
+    "ScanDurationMs" INTEGER NOT NULL,
+    CONSTRAINT "FK_DiscoveryScans_VaultStructures_VaultGuid" FOREIGN KEY ("VaultGuid") REFERENCES "VaultStructures" ("VaultGuid") ON DELETE CASCADE
+);
+
+CREATE TABLE "IntegrationPoints" (
+    "Id" INTEGER NOT NULL CONSTRAINT "PK_IntegrationPoints" PRIMARY KEY AUTOINCREMENT,
+    "VaultGuid" TEXT NOT NULL,
+    "Guid" TEXT NOT NULL,
+    "Name" TEXT NOT NULL,
+    "Type" TEXT NOT NULL,
+    "CurrentValue" TEXT NULL,
+    "LocationJson" TEXT NOT NULL,
+    "DataType" TEXT NULL,
+    "IsRewireable" INTEGER NOT NULL,
+    CONSTRAINT "FK_IntegrationPoints_VaultStructures_VaultGuid" FOREIGN KEY ("VaultGuid") REFERENCES "VaultStructures" ("VaultGuid") ON DELETE CASCADE
+);
+
+CREATE TABLE "MappingTemplates" (
+    "TemplateId" INTEGER NOT NULL CONSTRAINT "PK_MappingTemplates" PRIMARY KEY AUTOINCREMENT,
+    "VaultGuid" TEXT NOT NULL,
+    "VaultName" TEXT NOT NULL,
+    "GeneratedAt" TEXT NOT NULL,
+    "IntegrationPointsJson" TEXT NOT NULL,
+    "Version" INTEGER NOT NULL,
+    "Status" TEXT NOT NULL,
+    CONSTRAINT "FK_MappingTemplates_VaultStructures_VaultGuid" FOREIGN KEY ("VaultGuid") REFERENCES "VaultStructures" ("VaultGuid") ON DELETE CASCADE
+);
+
+CREATE TABLE "ObjectTypes" (
+    "Id" INTEGER NOT NULL CONSTRAINT "PK_ObjectTypes" PRIMARY KEY AUTOINCREMENT,
+    "VaultGuid" TEXT NOT NULL,
+    "Guid" TEXT NOT NULL,
+    "MFilesId" INTEGER NOT NULL,
+    "Name" TEXT NOT NULL,
+    "DisplayName" TEXT NULL,
+    "RealObjectType" INTEGER NOT NULL,
+    CONSTRAINT "FK_ObjectTypes_VaultStructures_VaultGuid" FOREIGN KEY ("VaultGuid") REFERENCES "VaultStructures" ("VaultGuid") ON DELETE CASCADE
+);
+
+CREATE TABLE "Properties" (
+    "Id" INTEGER NOT NULL CONSTRAINT "PK_Properties" PRIMARY KEY AUTOINCREMENT,
+    "VaultGuid" TEXT NOT NULL,
+    "Guid" TEXT NOT NULL,
+    "MFilesId" INTEGER NOT NULL,
+    "Name" TEXT NOT NULL,
+    "DataType" INTEGER NOT NULL,
+    "IsRequired" INTEGER NOT NULL,
+    CONSTRAINT "FK_Properties_VaultStructures_VaultGuid" FOREIGN KEY ("VaultGuid") REFERENCES "VaultStructures" ("VaultGuid") ON DELETE CASCADE
+);
+
+CREATE TABLE "Workflows" (
+    "Id" INTEGER NOT NULL CONSTRAINT "PK_Workflows" PRIMARY KEY AUTOINCREMENT,
+    "VaultGuid" TEXT NOT NULL,
+    "Guid" TEXT NOT NULL,
+    "MFilesId" INTEGER NOT NULL,
+    "Name" TEXT NOT NULL,
+    "Description" TEXT NULL,
+    CONSTRAINT "FK_Workflows_VaultStructures_VaultGuid" FOREIGN KEY ("VaultGuid") REFERENCES "VaultStructures" ("VaultGuid") ON DELETE CASCADE
+);
+
+CREATE TABLE "WorkflowStates" (
+    "Id" INTEGER NOT NULL CONSTRAINT "PK_WorkflowStates" PRIMARY KEY AUTOINCREMENT,
+    "VaultGuid" TEXT NOT NULL,
+    "Guid" TEXT NOT NULL,
+    "MFilesId" INTEGER NOT NULL,
+    "WorkflowGuid" TEXT NOT NULL,
+    "Name" TEXT NOT NULL,
+    "IsInitial" INTEGER NOT NULL,
+    "IsFinal" INTEGER NOT NULL,
+    CONSTRAINT "FK_WorkflowStates_VaultStructures_VaultGuid" FOREIGN KEY ("VaultGuid") REFERENCES "VaultStructures" ("VaultGuid") ON DELETE CASCADE
+);
+
+CREATE TABLE "WorkflowTransitions" (
+    "Id" INTEGER NOT NULL CONSTRAINT "PK_WorkflowTransitions" PRIMARY KEY AUTOINCREMENT,
+    "VaultGuid" TEXT NOT NULL,
+    "WorkflowGuid" TEXT NOT NULL,
+    "FromStateGuid" TEXT NOT NULL,
+    "ToStateGuid" TEXT NOT NULL,
+    "GuardConditions" TEXT NULL,
+    "Actions" TEXT NULL,
+    CONSTRAINT "FK_WorkflowTransitions_VaultStructures_VaultGuid" FOREIGN KEY ("VaultGuid") REFERENCES "VaultStructures" ("VaultGuid") ON DELETE CASCADE
+);
+

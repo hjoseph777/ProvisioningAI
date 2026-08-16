@@ -1,0 +1,1015 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Translation Plan Renderer — Mermaid vs. M-Files-style Diagram</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+<style>
+:root{
+  --bg:#0f1117; --panel:#1a1f2e; --panel2:#16213e; --border:#2d3748;
+  --text:#e2e8f0; --text-dim:#a0aec0; --text-faint:#718096;
+  --accent:#63b3ed; --green:#68d391; --amber:#f6ad55; --red:#fc8181;
+  --mono:'Consolas','SF Mono',Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;font-size:15px}
+code{font-family:var(--mono);background:#232936;color:#90cdf4;padding:1px 6px;border-radius:4px;font-size:0.87em}
+
+.header{background:linear-gradient(135deg,#1a1f2e,#16213e,#0f3460);border-bottom:1px solid var(--border);padding:18px 28px}
+.header h1{font-size:1.35rem;color:var(--accent);margin-bottom:6px}
+.header p{font-size:0.85rem;color:var(--text-faint);max-width:900px}
+
+.controls{display:flex;gap:10px;align-items:center;padding:14px 28px;background:var(--panel2);border-bottom:1px solid var(--border);flex-wrap:wrap}
+.controls label{font-size:0.78rem;color:var(--text-faint);text-transform:uppercase;letter-spacing:.04em;margin-right:4px}
+.tab-btn{background:var(--panel);border:1px solid var(--border);color:var(--text-dim);padding:7px 14px;border-radius:8px;cursor:pointer;font-size:0.85rem}
+.tab-btn:hover{border-color:var(--accent);color:var(--text)}
+.tab-btn.active{background:var(--accent);border-color:var(--accent);color:#0f1117;font-weight:600}
+.legend{display:flex;gap:16px;margin-left:auto;flex-wrap:wrap}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:0.76rem;color:var(--text-dim)}
+.legend-swatch{width:26px;height:2px;background:var(--text)}
+.legend-swatch.dashed{background:none;border-top:2px dashed var(--text)}
+.legend-swatch.skeleton{background:none;border-top:2px solid var(--amber)}
+
+main{padding:20px 28px 60px}
+.status-line{font-size:0.82rem;color:var(--text-faint);margin-bottom:14px}
+.status-line .ok{color:var(--green);font-weight:600}
+.status-line .bad{color:var(--red);font-weight:600}
+
+.side-by-side{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+@media (max-width:1000px){.side-by-side{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.panel-head{padding:10px 16px;background:var(--panel2);border-bottom:1px solid var(--border);font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint)}
+.panel-body{padding:16px;overflow:auto;max-height:80vh}
+.panel-body.mermaid-body{background:#fff}
+.panel-body.svg-body{background:#fff}
+
+.issues{margin-top:18px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 18px}
+.issues h3{font-size:0.9rem;color:var(--accent);margin-bottom:8px}
+.issue-row{font-size:0.82rem;padding:6px 0;border-bottom:1px solid var(--border);color:var(--text-dim)}
+.issue-row:last-child{border-bottom:none}
+.issue-row .sev-Warning{color:var(--amber);font-weight:700}
+.issue-row .sev-Error{color:var(--red);font-weight:700}
+
+.gap-note{margin-top:18px;background:rgba(246,173,85,.08);border:1px solid var(--amber);border-radius:10px;padding:14px 18px;font-size:0.85rem;color:#fbd38d}
+.gap-note h3{color:var(--amber);font-size:0.9rem;margin-bottom:8px}
+.gap-note code{background:rgba(0,0,0,.25);color:#fbd38d}
+
+.lint-warning{background:rgba(252,129,129,.12);border-bottom:1px solid var(--red);padding:10px 16px;font-size:0.78rem;color:#feb2b2}
+.lint-warning strong{color:#fc8181}
+
+svg text{font-family:'Segoe UI',system-ui,sans-serif}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Translation Plan Renderer</h1>
+  <p>Reads a <code>TranslationPlan</code> JSON (as produced by <code>ProvisioningAI.Workflow/Translation</code>, unmodified) and renders it two ways, side by side: the original Mermaid diagram (via Mermaid.js, unmodified) and a schematic M-Files-style diagram built directly from the plan's own resolved field values — never re-derived from the Mermaid source. Read-only demonstration; no vault access, no writes.</p>
+</div>
+
+<div class="controls">
+  <label>Sample:</label>
+  <button class="tab-btn" data-sample="section-6-2">§6.2 — full worked example</button>
+  <button class="tab-btn" data-sample="section-6-7">§6.7 — collapsing diamond (single inbound)</button>
+  <button class="tab-btn" data-sample="section-6-8">§6.8 — non-collapsing diamond (multiple inbound)</button>
+  <button class="tab-btn" data-sample="evaluation-priority">§1.6 — evaluation priority (new)</button>
+  <button class="tab-btn" data-sample="section-6-11">§6.11 — decision hub, collapsing (role-gated, new)</button>
+  <button class="tab-btn" data-sample="section-6-12">§6.12 — decision hub, promoting (role-gated, new)</button>
+  <div class="legend">
+    <div class="legend-item"><span class="legend-swatch"></span> Manual (TriggerMode 0)</div>
+    <div class="legend-item"><span class="legend-swatch dashed"></span> Automatic (TriggerMode 4/5)</div>
+    <div class="legend-item"><span class="legend-swatch skeleton"></span> ⚠ Skeleton (degraded default)</div>
+  </div>
+</div>
+
+<main>
+  <div class="status-line" id="status-line"></div>
+  <div class="side-by-side">
+    <div class="panel">
+      <div class="panel-head">Mermaid source (input) — rendered via Mermaid.js, unmodified</div>
+      <div class="lint-warning" id="lint-warning" style="display:none"></div>
+      <div class="panel-body mermaid-body" id="mermaid-target"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head">M-Files-style schematic (translated output) — drawn from the plan's resolved values</div>
+      <div class="panel-body svg-body" id="svg-target"></div>
+    </div>
+  </div>
+
+  <div class="issues">
+    <h3>Validation issues</h3>
+    <div id="issues-target"></div>
+  </div>
+
+  <div class="gap-note">
+    <h3>Design notes — gaps and clarifications this renderer surfaced, all now resolved</h3>
+    <div id="gap-target"></div>
+  </div>
+</main>
+
+<script>
+/* ---- Embedded sample data: {name: {mermaid: "...", plan: {...}}} ----
+   Generated from the actual Translator/Validator (ProvisioningAI.Workflow/Translation)
+   against MfilesProperties.md's own §6.2/§6.7/§6.8 worked examples — not hand-authored. */
+const SAMPLES = {
+  "section-6-2": {
+    "mermaid": "stateDiagram-v2\n    [*] --> Draft\n    Draft --> PendingReview\n    state review_decision <<choice>>\n    PendingReview --> review_decision\n    review_decision --> PendingApproval : role(Reviewer)\n    review_decision --> Rejected : if reviewer rejects\n    state approval_decision <<choice>>\n    PendingApproval --> approval_decision\n    approval_decision --> Approved : role(Approver)+esign\n    approval_decision --> PendingReview : if(ChangesRequested=Yes)\n    approval_decision --> Escalated : after(3d)\n    Escalated --> PendingApproval : script(RenotifyIfStillPending)\n    Approved --> Archived : after(30d)\n    Rejected --> [*]\n    Archived --> [*]",
+    "plan": {
+      "States": [
+        {
+          "Name": "Draft",
+          "IsInitial": true,
+          "IsTerminal": false,
+          "WasCollapsedChoicePromotedToState": false
+        },
+        {
+          "Name": "PendingReview",
+          "IsInitial": false,
+          "IsTerminal": false,
+          "WasCollapsedChoicePromotedToState": false
+        },
+        {
+          "Name": "PendingApproval",
+          "IsInitial": false,
+          "IsTerminal": false,
+          "WasCollapsedChoicePromotedToState": false
+        },
+        {
+          "Name": "Rejected",
+          "IsInitial": false,
+          "IsTerminal": true,
+          "WasCollapsedChoicePromotedToState": false
+        },
+        {
+          "Name": "Approved",
+          "IsInitial": false,
+          "IsTerminal": false,
+          "WasCollapsedChoicePromotedToState": false
+        },
+        {
+          "Name": "Escalated",
+          "IsInitial": false,
+          "IsTerminal": false,
+          "WasCollapsedChoicePromotedToState": false
+        },
+        {
+          "Name": "Archived",
+          "IsInitial": false,
+          "IsTerminal": true,
+          "WasCollapsedChoicePromotedToState": false
+        }
+      ],
+      "Transitions": [
+        {
+          "FromState": "Draft",
+          "ToState": "PendingReview",
+          "RuleApplied": "Manual transition (\u00a73.5 table row 1 \u2014 no label)",
+          "TriggerMode": "Manual",
+          "EvaluationPriority": 100,
+          "RequireElectronicSignature": false,
+          "IsSkeleton": false,
+          "Flags": []
+        },
+        {
+          "FromState": "PendingReview",
+          "ToState": "PendingApproval",
+          "RuleApplied": "Restricted-permission (human) transition (\u00a73.5)",
+          "TriggerMode": "Manual",
+          "EvaluationPriority": 100,
+          "PermissionsGroup": "Reviewer",
+          "PermissionsMethodAssumption": "Permissions selection method assumed as \"direct\" (\u00a72.3 method 1, named users/groups). role(...) cannot distinguish direct / metadata-based (pseudo-user) / prior-transition-based (\u00a72.3, \u00a73.5) \u2014 this is a flagged assumption, not a fact read from the diagram.",
+          "RequireElectronicSignature": false,
+          "IsSkeleton": false,
+          "OriginalLabel": "role(Reviewer)",
+          "Flags": []
+        },
+        {
+          "FromState": "PendingReview",
+          "ToState": "Rejected",
+          "RuleApplied": "UNRECOGNIZED LABEL \u2014 does not match any \u00a73.5 grammar",
+          "TriggerMode": "Manual",
+          "EvaluationPriority": 100,
+          "RequireElectronicSignature": false,
+          "IsSkeleton": true,
+          "SkeletonReason": "Label \"if reviewer rejects\" is prose, not the if(Property=Value)/after(Nd)/script(Name)/role(X) grammar. Per \u00a73.5/\u00a76.2/\u00a76.4: a strict importer refuses to guess and produces a bare skeleton (TriggerMode=0, no TriggerCriteria, no Permissions restriction). The intended semantic is silently dropped and must be resolved by a human, not guessed by this tool.",
+          "OriginalLabel": "if reviewer rejects",
+          "Flags": []
+        },
+        {
+          "FromState": "PendingApproval",
+          "ToState": "Approved",
+          "RuleApplied": "Restricted-permission transition + Electronic Signature (\u00a73.5, \u00a72.1)",
+          "TriggerMode": "Manual",
+          "EvaluationPriority": 100,
+          "PermissionsGroup": "Approver",
+          "PermissionsMethodAssumption": "Permissions selection method assumed as \"direct\" (\u00a72.3 method 1, named users/groups). role(...) cannot distinguish direct / metadata-based (pseudo-user) / prior-transition-based (\u00a72.3, \u00a73.5) \u2014 this is a flagged assumption, not a fact read from the diagram.",
+          "RequireElectronicSignature": true,
+          "ElectronicSignatureNote": "Signature-meaning text (predefined reason/meaning or custom description) has no defined default under this convention (\u00a76.2/\u00a76.5) \u2014 must be supplied or explicitly deferred before this could be built for real.",
+          "IsSkeleton": false,
+          "OriginalLabel": "role(Approver)+esign",
+          "Flags": []
+        },
+        {
+          "FromState": "PendingApproval",
+          "ToState": "PendingReview",
+          "RuleApplied": "Criteria-based automatic (\u00a73.5)",
+          "TriggerMode": "AutomaticCriteria",
+          "EvaluationPriority": 100,
+          "TriggerInDaysNote": "Not specified by the source diagram; the M-Files UI's own stored default applies (\u00a71.2).",
+          "TriggerCriteria": {
+            "Property": "ChangesRequested",
+            "Operator": "=",
+            "Value": "Yes"
+          },
+          "TriggerCriteriaNote": "Structured stand-in only \u2014 the real TriggerCriteria field is an opaque, engine-exported search-condition string (\u00a71.1: SearchConditions.GetAsExportedSearchString()), never a plain string. A real emitter must resolve this through M-Files' own search-condition object model, not string-template this expression.",
+          "RequireElectronicSignature": false,
+          "IsSkeleton": false,
+          "OriginalLabel": "if(ChangesRequested=Yes)",
+          "Flags": []
+        },
+        {
+          "FromState": "PendingApproval",
+          "ToState": "Escalated",
+          "RuleApplied": "Time-based automatic (\u00a73.5)",
+          "TriggerMode": "AutomaticCriteria",
+          "EvaluationPriority": 100,
+          "TriggerInDays": 3,
+          "RequireElectronicSignature": false,
+          "IsSkeleton": false,
+          "OriginalLabel": "after(3d)",
+          "Flags": []
+        },
+        {
+          "FromState": "Escalated",
+          "ToState": "PendingApproval",
+          "RuleApplied": "VBScript-gated (\u00a73.5)",
+          "TriggerMode": "AutomaticVBScript",
+          "EvaluationPriority": 100,
+          "TriggerInDaysNote": "Unresolved \u2014 \u00a76.4 point 3 leaves TriggerInDays on mode-5 (VBScript-gated) edges as a genuinely open question (whether it governs script re-evaluation cadence the same way it does for mode-4 criteria edges is not established); not asserted here either.",
+          "TriggerCriteriaNote": "Not applicable \u2014 TriggerMode 5 uses the script body, not a search condition (\u00a71.1).",
+          "VBScriptName": "RenotifyIfStillPending",
+          "VBScriptBody": "Dim daysSinceEscalated\ndaysSinceEscalated = DateDiff(\"d\", CDate(<escalation timestamp property value>), Now())\n\nIf daysSinceEscalated >= 1 Then\n    AllowStateTransition = True\nEnd If",
+          "RequireElectronicSignature": false,
+          "IsSkeleton": false,
+          "OriginalLabel": "script(RenotifyIfStillPending)",
+          "Flags": []
+        },
+        {
+          "FromState": "Approved",
+          "ToState": "Archived",
+          "RuleApplied": "Time-based automatic (\u00a73.5)",
+          "TriggerMode": "AutomaticCriteria",
+          "EvaluationPriority": 100,
+          "TriggerInDays": 30,
+          "RequireElectronicSignature": false,
+          "IsSkeleton": false,
+          "OriginalLabel": "after(30d)",
+          "Flags": []
+        }
+      ],
+      "ValidationIssues": [],
+      "GlobalAssumptions": [
+        "Every automatic (TriggerMode 4/5) edge's planned destination is treated as guaranteed. This project's own confirmed finding (\u00a71.3) is that a drawn arrow is only a guaranteed destination if no VBScript on that edge reassigns NextStateID at runtime. Script bodies present in the sidecar were scanned for the literal token \"NextStateID\" (see per-edge flags/issues), but this cannot verify what a not-yet-built vault's future script content will do \u2014 absence of the token here is not a platform guarantee (\u00a71.3)."
+      ],
+      "IsValid": true
+    }
+  },
+  "section-6-7": {
+    "mermaid": "stateDiagram-v2\n    state review_outcome <<choice>>\n    PendingReview --> review_outcome\n    review_outcome --> Approved : if(Decision=Approve)\n    review_outcome --> Rejected : if(Decision=Reject)",
+    "plan": {
+      "States": [
+        {
+          "Name": "PendingReview",
+          "IsInitial": false,
+          "IsTerminal": false,
+          "WasCollapsedChoicePromotedToState": false
+        },
+        {
+          "Name": "Approved",
+          "IsInitial": false,
+          "IsTerminal": true,
+          "WasCollapsedChoicePromotedToState": false
+        },
+        {
+          "Name": "Rejected",
+          "IsInitial": false,
+          "IsTerminal": true,
+          "WasCollapsedChoicePromotedToState": false
+        }
+      ],
+      "Transitions": [
+        {
+          "FromState": "PendingReview",
+          "ToState": "Approved",
+          "RuleApplied": "Criteria-based automatic (\u00a73.5)",
+          "TriggerMode": "AutomaticCriteria",
+          "EvaluationPriority": 100,
+          "TriggerInDaysNote": "Not specified by the source diagram; the M-Files UI's own stored default applies (\u00a71.2).",
+          "TriggerCriteria": {
+            "Property": "Decision",
+            "Operator": "=",
+            "Value": "Approve"
+          },
+          "TriggerCriteriaNote": "Structured stand-in only \u2014 the real TriggerCriteria field is an opaque, engine-exported search-condition string (\u00a71.1: SearchConditions.GetAsExportedSearchString()), never a plain string. A real emitter must resolve this through M-Files' own search-condition object model, not string-template this expression.",
+          "RequireElectronicSignature": false,
+          "IsSkeleton": false,
+          "OriginalLabel": "if(Decision=Approve)",
+          "Flags": []
+        },
+        {
+          "FromState": "PendingReview",
+          "ToState": "Rejected",
+          "RuleApplied": "Criteria-based automatic (\u00a73.5)",
+          "TriggerMode": "AutomaticCriteria",
+          "EvaluationPriority": 100,
+          "TriggerInDaysNote": "Not specified by the source diagram; the M-Files UI's own stored default applies (\u00a71.2).",
+          "TriggerCriteria": {
+            "Property": "Decision",
+            "Operator": "=",
+            "Value": "Reject"
+          },
+          "TriggerCriteriaNote": "Structured stand-in only \u2014 the real TriggerCriteria field is an opaque, engine-exported search-condition string (\u00a71.1: SearchConditions.GetAsExportedSearchString()), never a plain string. A real emitter must resolve this through M-Files' own search-condition object model, not string-template this expression.",
+          "RequireElectronicSignature": false,
+          "IsSkeleton": false,
+          "OriginalLabel": "if(Decision=Reject)",
+          "Flags": []
+        }
+      ],
+      "ValidationIssues": [],
+      "GlobalAssumptions": [
+        "Every automatic (TriggerMode 4/5) edge's planned destination is treated as guaranteed. This project's own confirmed finding (\u00a71.3) is that a drawn arrow is only a guaranteed destination if no VBScript on that edge reassigns NextStateID at runtime. Script bodies present in the sidecar were scanned for the literal token \"NextStateID\" (see per-edge flags/issues), but this cannot verify what a not-yet-built vault's future script content will do \u2014 absence of the token here is not a platform guarantee (\u00a71.3)."
+      ],
+      "IsValid": true
+    }
+  },
+  "section-6-8": {
+    "mermaid": "stateDiagram-v2\n    state review_outcome <<choice>>\n    PendingReview --> review_outcome\n    Escalated --> review_outcome\n    review_outcome --> Approved : if(Decision=Approve)\n    review_outcome --> Rejected : if(Decision=Reject)",
+    "plan": {
+      "States": [
+        {
+          "Name": "PendingReview",
+          "IsInitial": false,
+          "IsTerminal": false,
+          "WasCollapsedChoicePromotedToState": false
+        },
+        {
+          "Name": "Escalated",
+          "IsInitial": false,
+          "IsTerminal": false,
+          "WasCollapsedChoicePromotedToState": false
+        },
+        {
+          "Name": "Approved",
+          "IsInitial": false,
+          "IsTerminal": true,
+          "WasCollapsedChoicePromotedToState": false
+        },
+        {
+          "Name": "Rejected",
+          "IsInitial": false,
+          "IsTerminal": true,
+          "WasCollapsedChoicePromotedToState": false
+        },
+        {
+          "Name": "review_outcome",
+          "IsInitial": false,
+          "IsTerminal": false,
+          "WasCollapsedChoicePromotedToState": true
+        }
+      ],
+      "Transitions": [
+        {
+          "FromState": "PendingReview",
+          "ToState": "review_outcome",
+          "RuleApplied": "Manual transition (\u00a73.5 table row 1 \u2014 no label)",
+          "TriggerMode": "Manual",
+          "EvaluationPriority": 100,
+          "RequireElectronicSignature": false,
+          "IsSkeleton": false,
+          "Flags": []
+        },
+        {
+          "FromState": "Escalated",
+          "ToState": "review_outcome",
+          "RuleApplied": "Manual transition (\u00a73.5 table row 1 \u2014 no label)",
+          "TriggerMode": "Manual",
+          "EvaluationPriority": 100,
+          "RequireElectronicSignature": false,
+          "IsSkeleton": false,
+          "Flags": []
+        },
+        {
+          "FromState": "review_outcome",
+          "ToState": "Approved",
+          "RuleApplied": "Criteria-based automatic (\u00a73.5)",
+          "TriggerMode": "AutomaticCriteria",
+          "EvaluationPriority": 100,
+          "TriggerInDaysNote": "Not specified by the source diagram; the M-Files UI's own stored default applies (\u00a71.2).",
+          "TriggerCriteria": {
+            "Property": "Decision",
+            "Operator": "=",
+            "Value": "Approve"
+          },
+          "TriggerCriteriaNote": "Structured stand-in only \u2014 the real TriggerCriteria field is an opaque, engine-exported search-condition string (\u00a71.1: SearchConditions.GetAsExportedSearchString()), never a plain string. A real emitter must resolve this through M-Files' own search-condition object model, not string-template this expression.",
+          "RequireElectronicSignature": false,
+          "IsSkeleton": false,
+          "OriginalLabel": "if(Decision=Approve)",
+          "Flags": []
+        },
+        {
+          "FromState": "review_outcome",
+          "ToState": "Rejected",
+          "RuleApplied": "Criteria-based automatic (\u00a73.5)",
+          "TriggerMode": "AutomaticCriteria",
+          "EvaluationPriority": 100,
+          "TriggerInDaysNote": "Not specified by the source diagram; the M-Files UI's own stored default applies (\u00a71.2).",
+          "TriggerCriteria": {
+            "Property": "Decision",
+            "Operator": "=",
+            "Value": "Reject"
+          },
+          "TriggerCriteriaNote": "Structured stand-in only \u2014 the real TriggerCriteria field is an opaque, engine-exported search-condition string (\u00a71.1: SearchConditions.GetAsExportedSearchString()), never a plain string. A real emitter must resolve this through M-Files' own search-condition object model, not string-template this expression.",
+          "RequireElectronicSignature": false,
+          "IsSkeleton": false,
+          "OriginalLabel": "if(Decision=Reject)",
+          "Flags": []
+        }
+      ],
+      "ValidationIssues": [],
+      "GlobalAssumptions": [
+        "Every automatic (TriggerMode 4/5) edge's planned destination is treated as guaranteed. This project's own confirmed finding (\u00a71.3) is that a drawn arrow is only a guaranteed destination if no VBScript on that edge reassigns NextStateID at runtime. Script bodies present in the sidecar were scanned for the literal token \"NextStateID\" (see per-edge flags/issues), but this cannot verify what a not-yet-built vault's future script content will do \u2014 absence of the token here is not a platform guarantee (\u00a71.3)."
+      ],
+      "IsValid": true
+    }
+  },
+  "evaluation-priority": {
+    "mermaid": "stateDiagram-v2\n    [*] --> IncomingInvoice\n    state priority_check <<choice>>\n    IncomingInvoice --> priority_check\n    priority_check --> UrgentReview : after(3d)+priority(10)\n    priority_check --> StandardReview : after(3d)\n    UrgentReview --> Approved : role(Approver)\n    StandardReview --> Approved : role(Approver)",
+    "plan": {
+      "States": [
+        {
+          "Name": "IncomingInvoice",
+          "IsInitial": true,
+          "IsTerminal": false,
+          "WasCollapsedChoicePromotedToState": false
+        },
+        {
+          "Name": "UrgentReview",
+          "IsInitial": false,
+          "IsTerminal": false,
+          "WasCollapsedChoicePromotedToState": false
+        },
+        {
+          "Name": "StandardReview",
+          "IsInitial": false,
+          "IsTerminal": false,
+          "WasCollapsedChoicePromotedToState": false
+        },
+        {
+          "Name": "Approved",
+          "IsInitial": false,
+          "IsTerminal": true,
+          "WasCollapsedChoicePromotedToState": false
+        }
+      ],
+      "Transitions": [
+        {
+          "FromState": "UrgentReview",
+          "ToState": "Approved",
+          "RuleApplied": "Restricted-permission (human) transition (\u00a73.5)",
+          "TriggerMode": "Manual",
+          "EvaluationPriority": 100,
+          "PermissionsGroup": "Approver",
+          "PermissionsMethodAssumption": "Permissions selection method assumed as \"direct\" (\u00a72.3 method 1, named users/groups). role(...) cannot distinguish direct / metadata-based (pseudo-user) / prior-transition-based (\u00a72.3, \u00a73.5) \u2014 this is a flagged assumption, not a fact read from the diagram.",
+          "RequireElectronicSignature": false,
+          "IsSkeleton": false,
+          "OriginalLabel": "role(Approver)",
+          "Flags": []
+        },
+        {
+          "FromState": "StandardReview",
+          "ToState": "Approved",
+          "RuleApplied": "Restricted-permission (human) transition (\u00a73.5)",
+          "TriggerMode": "Manual",
+          "EvaluationPriority": 100,
+          "PermissionsGroup": "Approver",
+          "PermissionsMethodAssumption": "Permissions selection method assumed as \"direct\" (\u00a72.3 method 1, named users/groups). role(...) cannot distinguish direct / metadata-based (pseudo-user) / prior-transition-based (\u00a72.3, \u00a73.5) \u2014 this is a flagged assumption, not a fact read from the diagram.",
+          "RequireElectronicSignature": false,
+          "IsSkeleton": false,
+          "OriginalLabel": "role(Approver)",
+          "Flags": []
+        },
+        {
+          "FromState": "IncomingInvoice",
+          "ToState": "UrgentReview",
+          "RuleApplied": "Time-based automatic (\u00a73.5)",
+          "TriggerMode": "AutomaticCriteria",
+          "EvaluationPriority": 10,
+          "TriggerInDays": 3,
+          "RequireElectronicSignature": false,
+          "IsSkeleton": false,
+          "OriginalLabel": "after(3d)+priority(10)",
+          "Flags": []
+        },
+        {
+          "FromState": "IncomingInvoice",
+          "ToState": "StandardReview",
+          "RuleApplied": "Time-based automatic (\u00a73.5)",
+          "TriggerMode": "AutomaticCriteria",
+          "EvaluationPriority": 100,
+          "TriggerInDays": 3,
+          "RequireElectronicSignature": false,
+          "IsSkeleton": false,
+          "OriginalLabel": "after(3d)",
+          "Flags": []
+        }
+      ],
+      "ValidationIssues": [],
+      "GlobalAssumptions": [
+        "Every automatic (TriggerMode 4/5) edge's planned destination is treated as guaranteed. This project's own confirmed finding (\u00a71.3) is that a drawn arrow is only a guaranteed destination if no VBScript on that edge reassigns NextStateID at runtime. Script bodies present in the sidecar were scanned for the literal token \"NextStateID\" (see per-edge flags/issues), but this cannot verify what a not-yet-built vault's future script content will do \u2014 absence of the token here is not a platform guarantee (\u00a71.3)."
+      ],
+      "IsValid": true
+    }
+  },
+  "section-6-11": {
+    "mermaid": "stateDiagram-v2\n    [*] --> PendingReview\n    state review_gate <<choice>>\n    PendingReview --> review_gate\n    review_gate --> Approved : role(Approver)+esign\n    review_gate --> Rejected : role(Approver)",
+    "plan": {
+      "States": [
+        {
+          "Name": "PendingReview",
+          "IsInitial": true,
+          "IsTerminal": false,
+          "WasCollapsedChoicePromotedToState": false
+        },
+        {
+          "Name": "Approved",
+          "IsInitial": false,
+          "IsTerminal": true,
+          "WasCollapsedChoicePromotedToState": false
+        },
+        {
+          "Name": "Rejected",
+          "IsInitial": false,
+          "IsTerminal": true,
+          "WasCollapsedChoicePromotedToState": false
+        }
+      ],
+      "Transitions": [
+        {
+          "FromState": "PendingReview",
+          "ToState": "Approved",
+          "RuleApplied": "Restricted-permission transition + Electronic Signature (\u00a73.5, \u00a72.1)",
+          "TriggerMode": "Manual",
+          "EvaluationPriority": 100,
+          "PermissionsGroup": "Approver",
+          "PermissionsMethodAssumption": "Permissions selection method assumed as \"direct\" (\u00a72.3 method 1, named users/groups). role(...) cannot distinguish direct / metadata-based (pseudo-user) / prior-transition-based (\u00a72.3, \u00a73.5) \u2014 this is a flagged assumption, not a fact read from the diagram.",
+          "RequireElectronicSignature": true,
+          "ElectronicSignatureNote": "Signature-meaning text (predefined reason/meaning or custom description) has no defined default under this convention (\u00a76.2/\u00a76.5) \u2014 must be supplied or explicitly deferred before this could be built for real.",
+          "IsSkeleton": false,
+          "OriginalLabel": "role(Approver)+esign",
+          "Flags": []
+        },
+        {
+          "FromState": "PendingReview",
+          "ToState": "Rejected",
+          "RuleApplied": "Restricted-permission (human) transition (\u00a73.5)",
+          "TriggerMode": "Manual",
+          "EvaluationPriority": 100,
+          "PermissionsGroup": "Approver",
+          "PermissionsMethodAssumption": "Permissions selection method assumed as \"direct\" (\u00a72.3 method 1, named users/groups). role(...) cannot distinguish direct / metadata-based (pseudo-user) / prior-transition-based (\u00a72.3, \u00a73.5) \u2014 this is a flagged assumption, not a fact read from the diagram.",
+          "RequireElectronicSignature": false,
+          "IsSkeleton": false,
+          "OriginalLabel": "role(Approver)",
+          "Flags": []
+        }
+      ],
+      "ValidationIssues": [],
+      "GlobalAssumptions": [],
+      "IsValid": true
+    }
+  },
+  "section-6-12": {
+    "mermaid": "stateDiagram-v2\n    [*] --> PendingReview\n    state final_decision <<choice>>\n    PendingReview --> final_decision\n    Escalated --> final_decision\n    final_decision --> Approved : role(SeniorApprover)+esign\n    final_decision --> Rejected : role(SeniorApprover)",
+    "plan": {
+      "States": [
+        {
+          "Name": "PendingReview",
+          "IsInitial": true,
+          "IsTerminal": false,
+          "WasCollapsedChoicePromotedToState": false
+        },
+        {
+          "Name": "Escalated",
+          "IsInitial": false,
+          "IsTerminal": false,
+          "WasCollapsedChoicePromotedToState": false
+        },
+        {
+          "Name": "Approved",
+          "IsInitial": false,
+          "IsTerminal": true,
+          "WasCollapsedChoicePromotedToState": false
+        },
+        {
+          "Name": "Rejected",
+          "IsInitial": false,
+          "IsTerminal": true,
+          "WasCollapsedChoicePromotedToState": false
+        },
+        {
+          "Name": "final_decision",
+          "IsInitial": false,
+          "IsTerminal": false,
+          "WasCollapsedChoicePromotedToState": true
+        }
+      ],
+      "Transitions": [
+        {
+          "FromState": "PendingReview",
+          "ToState": "final_decision",
+          "RuleApplied": "Manual transition (\u00a73.5 table row 1 \u2014 no label)",
+          "TriggerMode": "Manual",
+          "EvaluationPriority": 100,
+          "RequireElectronicSignature": false,
+          "IsSkeleton": false,
+          "Flags": []
+        },
+        {
+          "FromState": "Escalated",
+          "ToState": "final_decision",
+          "RuleApplied": "Manual transition (\u00a73.5 table row 1 \u2014 no label)",
+          "TriggerMode": "Manual",
+          "EvaluationPriority": 100,
+          "RequireElectronicSignature": false,
+          "IsSkeleton": false,
+          "Flags": []
+        },
+        {
+          "FromState": "final_decision",
+          "ToState": "Approved",
+          "RuleApplied": "Restricted-permission transition + Electronic Signature (\u00a73.5, \u00a72.1)",
+          "TriggerMode": "Manual",
+          "EvaluationPriority": 100,
+          "PermissionsGroup": "SeniorApprover",
+          "PermissionsMethodAssumption": "Permissions selection method assumed as \"direct\" (\u00a72.3 method 1, named users/groups). role(...) cannot distinguish direct / metadata-based (pseudo-user) / prior-transition-based (\u00a72.3, \u00a73.5) \u2014 this is a flagged assumption, not a fact read from the diagram.",
+          "RequireElectronicSignature": true,
+          "ElectronicSignatureNote": "Signature-meaning text (predefined reason/meaning or custom description) has no defined default under this convention (\u00a76.2/\u00a76.5) \u2014 must be supplied or explicitly deferred before this could be built for real.",
+          "IsSkeleton": false,
+          "OriginalLabel": "role(SeniorApprover)+esign",
+          "Flags": []
+        },
+        {
+          "FromState": "final_decision",
+          "ToState": "Rejected",
+          "RuleApplied": "Restricted-permission (human) transition (\u00a73.5)",
+          "TriggerMode": "Manual",
+          "EvaluationPriority": 100,
+          "PermissionsGroup": "SeniorApprover",
+          "PermissionsMethodAssumption": "Permissions selection method assumed as \"direct\" (\u00a72.3 method 1, named users/groups). role(...) cannot distinguish direct / metadata-based (pseudo-user) / prior-transition-based (\u00a72.3, \u00a73.5) \u2014 this is a flagged assumption, not a fact read from the diagram.",
+          "RequireElectronicSignature": false,
+          "IsSkeleton": false,
+          "OriginalLabel": "role(SeniorApprover)",
+          "Flags": []
+        }
+      ],
+      "ValidationIssues": [],
+      "GlobalAssumptions": [],
+      "IsValid": true
+    }
+  }
+};
+</script>
+
+<script>
+mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose', stateDiagram: { useMaxWidth: true } });
+
+// ---------------------------------------------------------------------
+// M-Files-style schematic renderer — consumes TranslationPlan JSON only.
+// No Mermaid parsing here; this never looks at the source diagram text.
+// ---------------------------------------------------------------------
+
+function computeLayers(plan) {
+  const names = plan.States.map(s => s.Name);
+  const outgoing = {};
+  names.forEach(n => outgoing[n] = []);
+  plan.Transitions.forEach(t => {
+    if (!outgoing[t.FromState]) outgoing[t.FromState] = [];
+    outgoing[t.FromState].push(t.ToState);
+  });
+  const incomingCount = {};
+  names.forEach(n => incomingCount[n] = 0);
+  plan.Transitions.forEach(t => { if (incomingCount[t.ToState] !== undefined) incomingCount[t.ToState]++; });
+
+  let roots = plan.States.filter(s => s.IsInitial).map(s => s.Name);
+  if (roots.length === 0) roots = names.filter(n => incomingCount[n] === 0);
+  if (roots.length === 0) roots = names.slice(0, 1);
+
+  const layer = {};
+  const visited = new Set();
+  const queue = [];
+  roots.forEach(r => { layer[r] = 0; visited.add(r); queue.push(r); });
+  let qi = 0;
+  while (qi < queue.length) {
+    const cur = queue[qi++];
+    (outgoing[cur] || []).forEach(to => {
+      if (!visited.has(to)) {
+        visited.add(to);
+        layer[to] = layer[cur] + 1;
+        queue.push(to);
+      }
+    });
+  }
+  // Simple BFS, visited-once: sufficient for this tool's purpose (§6's examples are
+  // small and this doesn't need to match any real vault's exact layout). A cycle just
+  // produces a back-edge to an earlier layer, which the curved-path drawing below
+  // handles rather than looping forever trying to "optimize" the layering.
+  names.forEach(n => { if (!visited.has(n)) { layer[n] = 0; visited.add(n); } });
+  return layer;
+}
+
+function layoutPlan(plan) {
+  const layer = computeLayers(plan);
+  const byLayer = {};
+  plan.States.forEach(s => {
+    const l = layer[s.Name];
+    (byLayer[l] = byLayer[l] || []).push(s.Name);
+  });
+  const colWidth = 260, rowHeight = 130, boxW = 168, boxH = 58, marginX = 40, marginY = 40;
+  const pos = {};
+  Object.keys(byLayer).map(Number).sort((a, b) => a - b).forEach(l => {
+    const namesInLayer = byLayer[l];
+    namesInLayer.forEach((n, i) => {
+      pos[n] = {
+        x: marginX + i * colWidth,
+        y: marginY + l * rowHeight,
+        cx: marginX + i * colWidth + boxW / 2,
+        cy: marginY + l * rowHeight + boxH / 2,
+      };
+    });
+  });
+  const maxLayer = Math.max(0, ...Object.keys(byLayer).map(Number));
+  const maxInLayer = Math.max(1, ...Object.values(byLayer).map(a => a.length));
+  const width = marginX * 2 + maxInLayer * colWidth + 160; // +160: lane reserved for back-edge curves
+  const height = marginY * 2 + (maxLayer + 1) * rowHeight;
+  return { pos, width, height, boxW, boxH, backEdgeLaneX: marginX + maxInLayer * colWidth + 70 };
+}
+
+// ---------------------------------------------------------------------
+// Decision 5 mechanical-requirement lint: "state X <<choice>>" must be
+// declared before any edge references X, or Mermaid.js silently renders
+// a rectangle instead of a diamond (no error, no warning of its own —
+// this is exactly the bug vscode-AI caught by hand via SVG node-text
+// inspection). This checks the raw source text, not the rendered DOM,
+// so it stays correct regardless of Mermaid's internal markup/version.
+// ---------------------------------------------------------------------
+function checkChoiceDeclarationOrder(mermaidText) {
+  const violations = [];
+  const declRe = /state\s+(\w+)\s*<<choice>>/g;
+  const declarations = [];
+  let m;
+  while ((m = declRe.exec(mermaidText)) !== null) {
+    declarations.push({ name: m[1], index: m.index });
+  }
+  declarations.forEach(({ name, index }) => {
+    // Any line where `name` appears as an edge endpoint: "name -->" or "--> name".
+    // Word-boundaried so e.g. "review_decision" doesn't false-match "review_decision2".
+    const edgeRe = new RegExp('(^|\\s)' + name + '\\s*-->|-->\\s*' + name + '(\\s|:|$)', 'gm');
+    let earliest = null;
+    let em;
+    while ((em = edgeRe.exec(mermaidText)) !== null) {
+      if (em.index < index && (earliest === null || em.index < earliest)) earliest = em.index;
+    }
+    if (earliest !== null) {
+      violations.push(
+        `"${name}" is referenced by an edge before its "state ${name} &lt;&lt;choice&gt;&gt;" declaration — ` +
+        `Mermaid.js will silently render it as a plain rectangle, not a diamond (Decision 5 mechanical requirement, §3.5).`
+      );
+    }
+  });
+  return violations;
+}
+
+function edgeLabel(t) {
+  if (t.IsSkeleton) {
+    return '⚠ unparsed: "' + (t.OriginalLabel || '') + '"';
+  }
+  const parts = [];
+  if (t.TriggerCriteria) parts.push('if(' + t.TriggerCriteria.Property + '=' + t.TriggerCriteria.Value + ')');
+  else if (t.TriggerInDays !== undefined && t.TriggerInDays !== null) parts.push('after(' + t.TriggerInDays + 'd)');
+  else if (t.VBScriptName) parts.push('script(' + t.VBScriptName + ')');
+  if (t.PermissionsGroup) parts.push('role(' + t.PermissionsGroup + ')' + (t.RequireElectronicSignature ? '+esign' : ''));
+  // §1.6 / §3.5: only show it when it deviates from the confirmed live default (100) —
+  // showing "priority(100)" on every single edge would be true but pure clutter, exactly
+  // the "small text near the arrow, not cluttering the diagram" instruction this tool
+  // was built against.
+  if (typeof t.EvaluationPriority === 'number' && t.EvaluationPriority !== 100) {
+    parts.push('priority(' + t.EvaluationPriority + ')');
+  }
+  return parts.join(' ');
+}
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs, children) {
+  const e = document.createElementNS(SVG_NS, tag);
+  Object.entries(attrs || {}).forEach(([k, v]) => e.setAttribute(k, v));
+  (children || []).forEach(c => e.appendChild(c));
+  return e;
+}
+function textEl(x, y, str, attrs) {
+  const t = el('text', Object.assign({ x, y }, attrs));
+  t.textContent = str;
+  return t;
+}
+
+function rectsOverlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function renderMFilesDiagram(plan, container) {
+  container.innerHTML = '';
+  const { pos, width, height, boxW, boxH, backEdgeLaneX } = layoutPlan(plan);
+  const svg = el('svg', { width, height, viewBox: `0 0 ${width} ${height}`, style: 'display:block;margin:0 auto' });
+
+  const defs = el('defs', {}, [
+    el('marker', { id: 'arrow', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 8, markerHeight: 8, orient: 'auto-start-reverse' }, [
+      el('path', { d: 'M 0 0 L 10 5 L 0 10 z', fill: '#2d3748' }),
+    ]),
+    el('marker', { id: 'arrow-skeleton', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 8, markerHeight: 8, orient: 'auto-start-reverse' }, [
+      el('path', { d: 'M 0 0 L 10 5 L 0 10 z', fill: '#dd6b20' }),
+    ]),
+  ]);
+  svg.appendChild(defs);
+
+  // --- edges first, so boxes draw on top of line origins ---
+  const byState = {};
+  plan.Transitions.forEach(t => { (byState[t.FromState] = byState[t.FromState] || []).push(t); });
+
+  const placedLabelRects = []; // collision avoidance for edge-label backgrounds
+
+  // Back-edges (cycles, e.g. a retry loop) all route through one shared lane on the
+  // diagram's right edge rather than bowing out locally — a local bow tends to cut
+  // straight through whichever sibling state and label happen to sit next to the
+  // source/target, which is exactly the clutter a "readable at a glance" schematic
+  // can't have. One shared lane keeps every back-edge clear of the forward-edge labels.
+  let backEdgeLaneOffset = 0;
+
+  plan.Transitions.forEach(t => {
+    const from = pos[t.FromState], to = pos[t.ToState];
+    if (!from || !to) return;
+    const isBackEdge = to.cy <= from.cy;
+    const isAutomatic = t.TriggerMode !== 'Manual';
+    const stroke = t.IsSkeleton ? '#dd6b20' : '#2d3748';
+    const marker = t.IsSkeleton ? 'url(#arrow-skeleton)' : 'url(#arrow)';
+    const dash = isAutomatic ? '7,5' : null;
+
+    let d, midX, midY;
+    if (isBackEdge && t.FromState !== t.ToState) {
+      const laneX = backEdgeLaneX + backEdgeLaneOffset;
+      backEdgeLaneOffset += 26; // stagger multiple back-edges so they don't overlap each other either
+      const sx = from.cx + boxW / 2, sy = from.cy;
+      const tx = to.cx + boxW / 2, ty = to.cy;
+      d = `M ${sx} ${sy} C ${laneX} ${sy}, ${laneX} ${ty}, ${tx} ${ty}`;
+      midX = laneX; midY = (sy + ty) / 2;
+    } else {
+      const sx = from.cx, sy = from.cy + boxH / 2;
+      const tx = to.cx, ty = to.cy - boxH / 2;
+      d = `M ${sx} ${sy} L ${tx} ${ty}`;
+      midX = (sx + tx) / 2; midY = (sy + ty) / 2;
+    }
+
+    const path = el('path', { d, fill: 'none', stroke, 'stroke-width': 2, 'marker-end': marker });
+    if (dash) path.setAttribute('stroke-dasharray', dash);
+    svg.appendChild(path);
+
+    const label = edgeLabel(t);
+    if (label) {
+      const padX = 4;
+      const approxW = Math.min(220, 6.2 * label.length) + padX * 2;
+      const rectW = approxW, rectH = 16;
+      let labelX = midX, labelY = midY;
+      // nudge straight down, in steps, until clear of every previously-placed label
+      for (let attempt = 0; attempt < 12; attempt++) {
+        const candidate = { x: labelX - rectW / 2, y: labelY - 9, w: rectW, h: rectH };
+        const collides = placedLabelRects.some(r => rectsOverlap(candidate, r));
+        if (!collides) break;
+        labelY += 15;
+      }
+      placedLabelRects.push({ x: labelX - rectW / 2, y: labelY - 9, w: rectW, h: rectH });
+
+      const bg = el('rect', { x: labelX - approxW / 2, y: labelY - 9, width: approxW, height: 16, fill: '#fff', opacity: 0.92, rx: 3 });
+      svg.appendChild(bg);
+      const txt = textEl(labelX, labelY + 3, label, {
+        'text-anchor': 'middle', 'font-size': 10.5,
+        fill: t.IsSkeleton ? '#c05621' : '#4a5568',
+        'font-weight': t.IsSkeleton ? 700 : 400,
+      });
+      svg.appendChild(txt);
+
+      if (t.IsSkeleton) {
+        svg.appendChild(textEl(labelX - approxW / 2 - 10, labelY + 4, '⚠', { 'font-size': 13 }));
+      }
+    } else if (t.IsSkeleton) {
+      svg.appendChild(textEl(midX, midY + 4, '⚠', { 'text-anchor': 'middle', 'font-size': 13 }));
+    }
+  });
+
+  // --- state boxes ---
+  plan.States.forEach(s => {
+    const p = pos[s.Name];
+    if (!p) return;
+    const isTerminal = s.IsTerminal;
+    const fill = s.IsInitial ? '#ebf8ff' : (isTerminal ? '#f7fafc' : '#ffffff');
+    const stroke = s.IsInitial ? '#3182ce' : '#4a5568';
+    const rect = el('rect', {
+      x: p.x, y: p.y, width: boxW, height: boxH, rx: 10,
+      fill, stroke, 'stroke-width': isTerminal ? 3 : 1.6,
+    });
+    svg.appendChild(rect);
+
+    if (s.IsInitial) {
+      svg.appendChild(el('circle', { cx: p.x - 16, cy: p.cy, r: 5, fill: '#3182ce' }));
+      svg.appendChild(el('path', { d: `M ${p.x - 11} ${p.cy} L ${p.x} ${p.cy}`, stroke: '#3182ce', 'stroke-width': 2, 'marker-end': 'url(#arrow)' }));
+    }
+
+    const nameY = s.WasCollapsedChoicePromotedToState ? p.cy - 3 : p.cy + 4;
+    svg.appendChild(textEl(p.cx, nameY, s.Name, { 'text-anchor': 'middle', 'font-size': 13, 'font-weight': 600, fill: '#1a202c' }));
+    if (s.WasCollapsedChoicePromotedToState) {
+      svg.appendChild(textEl(p.cx, p.cy + 14, '(promoted from <<choice>>, §3.5 Decision 3)', { 'text-anchor': 'middle', 'font-size': 8.5, fill: '#718096' }));
+    }
+    if (isTerminal) {
+      svg.appendChild(textEl(p.cx, p.y + boxH + 12, 'terminal', { 'text-anchor': 'middle', 'font-size': 9, fill: '#a0aec0', 'font-style': 'italic' }));
+    }
+  });
+
+  container.appendChild(svg);
+}
+
+// ---------------------------------------------------------------------
+// Page wiring
+// ---------------------------------------------------------------------
+
+function renderIssues(plan) {
+  const target = document.getElementById('issues-target');
+  target.innerHTML = '';
+  if (!plan.ValidationIssues || plan.ValidationIssues.length === 0) {
+    target.innerHTML = '<div class="issue-row">(none)</div>';
+    return;
+  }
+  plan.ValidationIssues.forEach(i => {
+    const row = document.createElement('div');
+    row.className = 'issue-row';
+    row.innerHTML = `<span class="sev-${i.Severity}">[${i.Severity}]</span> <strong>${i.Code}</strong>: ${i.Message}`;
+    target.appendChild(row);
+  });
+}
+
+function renderGapNote() {
+  document.getElementById('gap-target').innerHTML = `
+    <p>This renderer originally surfaced gaps between what it needed and what <code>TranslationPlan</code> carried, and its own rendering code later helped settle a recurring question about the diamond convention itself. All have since been closed or formalized — recorded here for the same reason MfilesProperties.md §3.5 records its own decisions: so the reasoning isn't lost and doesn't get silently re-litigated later.</p>
+    <ul style="margin:8px 0 0 20px">
+      <li><strong>No source Mermaid text — formalized as the intended pattern, not changed.</strong> <code>TranslationPlan</code> still deliberately does not carry the source diagram text (see the doc comment on the type itself). Every field on that type is resolved output; the source text is the one thing that isn't, and a caller that needs it already has it in scope — it's what it just passed to <code>TranslationPipeline.Translate</code>. This page's <code>{mermaid, plan}</code> sibling-pair samples are that pattern in practice, not a workaround for a gap that's still open.</li>
+      <li><strong><code>EvaluationPriority</code> (§1.6 / §3.5's <code>+priority(N)</code> suffix) — implemented, closed.</strong> <code>EdgeResolver.cs</code> now strips and parses a trailing <code>+priority(N)</code> from any label before grammar-matching the rest, and <code>PlannedTransition.EvaluationPriority</code> defaults to the confirmed live default (100) when the suffix is absent — including on unlabeled edges. The <strong>§1.6 — evaluation priority (new)</strong> sample tab demonstrates it live: two parallel automatic edges off the same state, one with an explicit override rendering as <code>priority(10)</code> on its arrow label, one left at the default (100) and rendering with no priority token at all, exactly per the "don't clutter the diagram with the default" rule this tool was built against.</li>
+      <li><strong>§6.11 / §6.12 — decision-hub (<code>role()</code>-gated) diamond coverage — verified, closed.</strong> Every prior diamond example (§6.7, §6.8, §6.10) exercised <code>if()</code>/<code>after()</code> automatic branches only; no example had run a <code>role()</code>-gated diamond — the actual decision-hub case — through the real pipeline. §6.11 (single-inbound collapse) and §6.12 (multi-inbound promote) close that gap, mirroring §6.7/§6.8's structure with <code>role()</code>/<code>role()+esign</code> branches instead. Confirmed field-for-field against the live <code>Translator/Validator</code>: collapse/promote behavior, <code>TriggerMode</code>, <code>PermissionsGroup</code>, and <code>RequireElectronicSignature</code> all matched an initial hand-authored draft exactly. The one discrepancy found was in the hand-authored draft's own self-documenting <code>GlobalAssumptions</code> scaffolding text (explaining its own unverified status) — never a field the real tool produces — which has since been stripped to match the real pipeline's actual output (an empty array, since neither diagram contains automatic transitions).</li>
+      <li><strong>Diamond-vs-rectangle in final output, and outgoing-only vs incoming triggering — never actually ambiguous, just never stated as its own explicit rule (2026-08-16).</strong> Checked directly against this page's own <code>renderMFilesDiagram</code> function below: every state in <code>plan.States</code>, collapsed-away survivor or promoted hub alike, draws as the same <code>el('rect', ...)</code>; a promoted state (<code>WasCollapsedChoicePromotedToState</code>) is distinguished only by an added caption ("promoted from <code>&lt;&lt;choice&gt;&gt;</code>, §3.5 Decision 3"), never a different shape. Combined with Decision 5's own outgoing-count-only trigger (never incoming), this closes what read as a recurring open question: a convergence/hub state (many inbound, no branching of its own) was never a diamond in the first place, and no diamond — collapsed or promoted — ever survives into M-Files-style output regardless. Nothing new was decided; this was already correctly and consistently implemented everywhere, just never spelled out this explicitly in one place before. Filed as a clarifying addendum to MfilesProperties.md's Decisions 3 and 5, not a new decision.</li>
+    </ul>`;
+}
+
+function showSample(name) {
+  const sample = SAMPLES[name];
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.sample === name));
+
+  const plan = sample.plan;
+  const stateCount = plan.States.length;
+  const transCount = plan.Transitions.length;
+  const skeletonCount = plan.Transitions.filter(t => t.IsSkeleton).length;
+  document.getElementById('status-line').innerHTML =
+    `<strong>${name}</strong> — ${stateCount} states, ${transCount} transitions, ${skeletonCount} flagged skeleton — plan is ` +
+    (plan.IsValid ? '<span class="ok">VALID</span>' : '<span class="bad">INVALID (blocking errors present)</span>');
+
+  document.getElementById('mermaid-target').innerHTML = '<div class="mermaid">' + sample.mermaid.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</div>';
+  mermaid.run({ querySelector: '#mermaid-target .mermaid' }).catch(err => console.error('Mermaid render error:', err));
+
+  const lintTarget = document.getElementById('lint-warning');
+  const violations = checkChoiceDeclarationOrder(sample.mermaid);
+  if (violations.length > 0) {
+    lintTarget.style.display = 'block';
+    lintTarget.innerHTML = '<strong>⚠ Mermaid declaration-order lint:</strong><br>' + violations.join('<br>');
+  } else {
+    lintTarget.style.display = 'none';
+    lintTarget.innerHTML = '';
+  }
+
+  renderMFilesDiagram(plan, document.getElementById('svg-target'));
+  renderIssues(plan);
+}
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => showSample(btn.dataset.sample));
+});
+
+renderGapNote();
+showSample('section-6-2');
+</script>
+
+</body>
+</html>

@@ -59,7 +59,7 @@ function buildSOW(wf, users, props, rules) {
 function buildPRD(wf, users, props, rules) {
   const hrs=wf.states.length*3+wf.transitions.length+25;
   return buildSOW(wf,users,props,rules).replace('## Statement of Work','## Product Requirements Document')
-    +`\n## 6. Build Estimate\n\n| Phase | Hours |\n|:---|:---|\n| Schema + Parser | 15–20 |\n| COM Provisioner | ${hrs-15}–${Math.round((hrs-15)*1.3)} |\n| Testing | 10–15 |\n| **Total** | **${hrs}–${Math.round(hrs*1.3)}** |\n\n*Proviso · ${new Date().getFullYear()}*\n`;
+    +`\n## 6. Build Estimate\n\n| Phase | Hours |\n|:---|:---|\n| Schema + Parser | 15–20 |\n| COM Provisioner | ${hrs-15}–${Math.round((hrs-15)*1.3)} |\n| Testing | 10–15 |\n| **Total** | **${hrs}–${Math.round(hrs*1.3)}** |\n\n*ProvisioningAI · ${new Date().getFullYear()}*\n`;
 }
 
 const loadMermaid=()=>new Promise(res=>{

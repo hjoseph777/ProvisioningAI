@@ -9,9 +9,9 @@ from flask_cors import CORS
 # Feature:  Cacoo Diagram Import (XML -> Workflow JSON)
 # Status:   Preserved for Phase 2/3 implementation
 # Purpose:  Allow users to import an existing Cacoo state-diagram directly
-#           into Proviso instead of building the workflow manually.
+#           into ProvisioningAI instead of building the workflow manually.
 #           The /api/cacoo-fetch endpoint fetches the diagram XML from the
-#           Cacoo API and transforms it into the Proviso workflow JSON format
+#           Cacoo API and transforms it into the ProvisioningAI workflow JSON format
 #           { name, states[], transitions[] } ready for vault ingestion.
 # TODO:     1. Complete parse_cacoo_xml() with real Cacoo XML shape/line schema
 #           2. Wire a "Import from Cacoo" button into WorkflowEditor.jsx

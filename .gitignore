@@ -3,3 +3,11 @@ dist
 .env
 .vite
 *.local
+.gstack/
+bin/
+obj/
+dist-electron*/
+coverage-results/
+
+# Live vault config rollback references — contain real credentials, never commit
+rollback/

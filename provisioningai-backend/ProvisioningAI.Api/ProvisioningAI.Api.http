@@ -1,0 +1,6 @@
+@ProvisioningAI.Api_HostAddress = http://localhost:5101
+
+GET {{ProvisioningAI.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

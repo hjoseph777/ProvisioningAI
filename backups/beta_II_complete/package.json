@@ -1,5 +1,5 @@
 {
-  "name": "proviso",
+  "name": "provisioningai",
   "version": "0.2.0",
   "private": true,
   "type": "module",
@@ -27,8 +27,8 @@
     "wait-on": "9.0.5"
   },
   "build": {
-    "appId": "com.xerox.proviso",
-    "productName": "Proviso",
+    "appId": "com.xerox.provisioningai",
+    "productName": "ProvisioningAI",
     "directories": {
       "output": "dist-electron"
     },

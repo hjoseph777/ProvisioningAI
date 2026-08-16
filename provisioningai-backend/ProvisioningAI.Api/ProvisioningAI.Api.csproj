@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.29" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ProvisioningAI.Core\ProvisioningAI.Core.csproj" />
+    <ProjectReference Include="..\ProvisioningAI.Discovery\ProvisioningAI.Discovery.csproj" />
+    <ProjectReference Include="..\ProvisioningAI.Documentation\ProvisioningAI.Documentation.csproj" />
+    <ProjectReference Include="..\ProvisioningAI.Workflow\ProvisioningAI.Workflow.csproj" />
+    <ProjectReference Include="..\ProvisioningAI.Provisioning\ProvisioningAI.Provisioning.csproj" />
+    <ProjectReference Include="..\ProvisioningAI.Copilot\ProvisioningAI.Copilot.csproj" />
+    <ProjectReference Include="..\ProvisioningAI.Data\ProvisioningAI.Data.csproj" />
+    <ProjectReference Include="..\ProvisioningAI.Audit\ProvisioningAI.Audit.csproj" />
+  </ItemGroup>
+
+</Project>

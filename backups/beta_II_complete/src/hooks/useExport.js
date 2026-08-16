@@ -14,7 +14,7 @@ export const useExport = () => {
       _meta: {
         exportedAt:  new Date().toISOString(),
         version:     '2.0',
-        tool:        'Proviso Workflow Designer',
+        tool:        'ProvisioningAI Workflow Designer',
         target:      'M-Files COM API',
       },
       // ── Vault push payload (workflows only) ────────────────────────
@@ -60,7 +60,7 @@ export const useExport = () => {
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `proviso-export-${Date.now()}.json`;
+    a.download = `provisioningai-export-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(a.href);
   };

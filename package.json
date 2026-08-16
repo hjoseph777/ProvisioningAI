@@ -1,6 +1,7 @@
 {
-  "name": "proviso",
+  "name": "provisioningai",
   "version": "0.2.0",
+  "author": "Harry Joseph",
   "private": true,
   "type": "module",
   "description": "M-Files Workflow Ingestion — SOW to Vault",
@@ -10,31 +11,54 @@
     "build": "vite build",
     "preview": "vite preview",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:3000 && electron .\"",
-    "electron:build": "vite build && electron-builder"
+    "electron:build": "vite build && electron-builder --config.electronDist=node_modules/electron/dist",
+    "electron:build:download": "vite build && electron-builder"
   },
   "dependencies": {
+    "@dagrejs/dagre": "1.1.5",
+    "@tanstack/react-query": "5.101.4",
+    "@xyflow/react": "12.11.3",
+    "axios": "1.18.1",
+    "bpmn-moddle": "10.1.0",
+    "d3": "7.9.0",
+    "dotenv": "17.4.2",
+    "electron-is-dev": "3.0.1",
+    "electron-store": "11.0.2",
+    "electron-updater": "6.8.9",
+    "framer-motion": "12.42.2",
+    "lucide-react": "1.27.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-flow-renderer": "10.3.17",
+    "react-json-view": "1.21.3",
+    "react-router-dom": "7.18.1",
+    "react-tabs": "6.1.1",
+    "recharts": "3.10.1",
+    "three": "0.185.1",
     "zod": "4.4.3",
     "zustand": "5.0.13"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
-    "concurrently": "9.2.1",
+    "@vitejs/plugin-react": "6.0.4",
+    "concurrently": "9.2.4",
     "electron": "42.0.1",
-    "electron-builder": "26.8.1",
-    "vite": "^6.3.5",
+    "electron-builder": "26.15.3",
+    "eslint": "10.8.0",
+    "prettier": "3.9.6",
+    "tailwindcss": "4.3.3",
+    "typescript": "7.0.2",
+    "vite": "8.1.5",
     "wait-on": "9.0.5"
   },
   "build": {
-    "appId": "com.xerox.proviso",
-    "productName": "Proviso",
+    "appId": "com.xerox.provisioningai",
+    "productName": "ProvisioningAI",
     "directories": {
       "output": "dist-electron"
     },
     "win": {
       "target": "nsis",
-      "icon": "public/favicon.svg"
+      "icon": "electron/app-icon.ico"
     },
     "files": [
       "dist/**/*",
@@ -42,5 +66,8 @@
       "scripts/**/*",
       "package.json"
     ]
+  },
+  "overrides": {
+    "brace-expansion": "5.0.8"
   }
 }

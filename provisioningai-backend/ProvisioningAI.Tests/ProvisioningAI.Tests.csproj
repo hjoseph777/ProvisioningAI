@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="8.0.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="Moq" Version="4.20.72" />
+    <PackageReference Include="xunit" Version="2.5.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ProvisioningAI.Core\ProvisioningAI.Core.csproj" />
+    <ProjectReference Include="..\ProvisioningAI.Discovery\ProvisioningAI.Discovery.csproj" />
+    <ProjectReference Include="..\ProvisioningAI.Documentation\ProvisioningAI.Documentation.csproj" />
+    <ProjectReference Include="..\ProvisioningAI.Workflow\ProvisioningAI.Workflow.csproj" />
+    <ProjectReference Include="..\ProvisioningAI.Provisioning\ProvisioningAI.Provisioning.csproj" />
+    <ProjectReference Include="..\ProvisioningAI.Copilot\ProvisioningAI.Copilot.csproj" />
+    <ProjectReference Include="..\ProvisioningAI.Data\ProvisioningAI.Data.csproj" />
+    <ProjectReference Include="..\ProvisioningAI.Audit\ProvisioningAI.Audit.csproj" />
+    <ProjectReference Include="..\ProvisioningAI.Api\ProvisioningAI.Api.csproj" />
+    <ProjectReference Include="..\ProvisioningAI.MFilesConnectors\ProvisioningAI.MFilesConnectors.csproj" />
+  </ItemGroup>
+
+</Project>
