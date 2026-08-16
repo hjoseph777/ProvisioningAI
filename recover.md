@@ -1314,6 +1314,26 @@ Per explicit task: an independent auto-detect badge for 2+ incoming transitions,
 - Deleted `Under Review → Rejected` (now 1 out/2 in) — **diamond badge/menu-block disappeared, hub badge/menu-block stayed, independently**, re-confirmed in all three surfaces plus a second screenshot. Canvas shape check: dual-signal state had a real `<polygon>` (pre-existing diamond mechanism, outgoing-driven only); after the drop, `<polygon>` gone, plain `<rect>` remained, hub badge still showing in the panels — hub confirmed never touching canvas node geometry.
 - `git diff --stat` after the edits: only `MFlowCanvas.jsx`, `MFlowPalette.jsx`, `App.jsx` (CSS) — confirms zero touch to `useMermaid.js`, `transitionGrammar.js`, or `CommandCenter.jsx`. Process Docs (BPMN Standard) loaded clean on the same run. Zero console errors, zero failed requests, across every script run.
 
+### M-Files Flow: canvas visible immediately on new workflow, not gated behind Initial state (2026-08-16)
+
+Reported bug: `+ Workflow` creates a new workflow but the canvas stays hidden; only clicking the "Initial State" palette tile specifically revealed it — plain "State"/"End State" did nothing visible.
+
+**Investigated first, per the task's own instruction, before changing anything.** Read `useMermaid.js` (shared by Studio and M-Files Flow) and found the actual gate is not `states.length > 0` — it's `states.some(s => s.initial)`. `MFlowCanvas.jsx`'s JSX then fully unmounted the diagram div and swapped in the `.blueprint-empty`/"No Diagram Available" placeholder whenever no state was flagged Initial, regardless of how many other states existed. This exactly matches the report: only the Initial State tile ever set `initial: true`, so it was the only thing that ever flipped the gate.
+
+**Scoped the fix to not touch Studio at all**, since the hook is genuinely shared — confirmed via a live test rather than assuming: `useMermaid.js` gained an optional `{ requireInitial }` param, defaulting to `true` (Studio's own call site is unchanged, byte-for-byte, still requires an Initial state). `MFlowCanvas.jsx` is the only caller passing `{ requireInitial: false }`.
+
+**JSX restructured** so the diagram div (dotted-grid background — the actual "canvas" look) is mounted the moment a workflow is selected, not swapped out for a placeholder: new `.mflow-diagram-wrap` (`position:relative`) wraps the always-present `.mflow-diagram`, with a new non-blocking (`pointer-events:none`) `.mflow-diagram-empty` overlay shown only when `!mermaidStr` (true zero-states case). Overlay text adapted per the task's own suggestion, reusing the existing "No Diagram Available" title/style classes rather than inventing new copy: "Add a state from the palette to begin." The pre-existing "no workflow selected at all" case (`!wf`) keeps the original full-block treatment — untouched, unrelated to this bug.
+
+**Verified live** (`browser-automation`, fresh `+ Workflow` creation, all in one run):
+
+- New empty workflow: canvas div mounted immediately, overlay shown with the adapted text, **not** the old full blueprint block.
+- Clicked plain "State" tile (not Initial) on the empty canvas — a real node appeared immediately, overlay gone. No hidden-reveal step.
+- Second fresh workflow, clicked "Initial State" specifically — still works too (that icon wasn't broken, just no longer the *only* thing that worked).
+- Existing seeded workflow (`Document Approval`, 6 states + Draft marked Initial) — loads exactly as before, 7 rendered nodes (6 states + the `[*]` start marker), no overlay, no full blueprint.
+- **Studio confirmed genuinely untouched**: switched to Studio, selected the same plain-State-only workflow created above (states exist, none Initial) — Studio's own `.blueprint-empty` still shows, with its **original, unchanged** text ("Add at least one state and mark it as \"Initial\"..."), proving the shared hook's default behavior is byte-identical for Studio's call site.
+- Diamond/hub badges (table panel + Layers palette), right-click menu's "Diamond (auto-detected)" block, and Process Docs (BPMN Standard) all re-checked afterward on the existing `Document Approval` workflow — unaffected.
+- Zero console errors, zero failed requests, across every script run.
+
 ### Session pausing here — operator back in ~4 hours (2026-08-16)
 
 **⚠ "word" is now ambiguous across THREE candidate threads, not two.** Already flagged once this session (see `BPMN_PROCESS_DOC.md` §10's own note: *"this codeword is already bound to the unrelated Conformity/M-Files investigation thread in memory... check which thread they actually mean from context before assuming"*). That covered Conformity vs. BPMN. It does not cover this session's own thread — the active M-Files Flow work (diamonds, badge, Layers palette, right-click menu, automatic-transition grammar authoring) has no codeword of its own and was never a candidate for "word" before now. **If the operator says "word" next, do not silently default to any of the three** — check the actual request/context first: Conformity/M-Files vault investigation, BPMN Standard/Process Docs polish queue, or this session's M-Files Flow thread.

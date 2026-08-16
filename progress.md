@@ -1787,9 +1787,19 @@ Independent auto-detect signal, same mechanism as the diamond badge just measuri
 - Canvas shape confirmed independent of the hub signal specifically: the dual-signal state rendered a real `<polygon>` (pre-existing diamond mechanism, driven only by outgoing count); after the isolation edit dropped outgoing below 2, the `<polygon>` was gone and only a plain `<rect>` remained while the hub badge kept showing in the side panels — hub never touches canvas node geometry, confirmed by DOM query, not just by construction (no shape-rendering file was edited for this task).
 - Regression: diamond badge, Layers palette, right-click menu, and automatic-transition grammar all unaffected (`git diff --stat` confirms only `MFlowCanvas.jsx`, `MFlowPalette.jsx`, `App.jsx` CSS touched — `useMermaid.js`/`transitionGrammar.js`/`CommandCenter.jsx` untouched). Process Docs (BPMN Standard) loads clean. Zero console errors, zero failed requests, across every step of every run.
 
+## M-Files Flow: canvas visible immediately on new workflow, not gated behind Initial state (2026-08-16)
+
+Reported bug: `+ Workflow` created a new workflow but the canvas stayed hidden — only clicking the "Initial State" palette tile specifically revealed it.
+
+**Investigated before changing anything, per the task's own instruction.** Confirmed via `useMermaid.js` (shared by Studio and M-Files Flow) that the real gate is `states.some(s => s.initial)`, not `states.length > 0` — `MFlowCanvas.jsx` fully unmounted the diagram div and swapped in the "No Diagram Available" placeholder whenever no state was flagged Initial, matching the report exactly (plain "State"/"End State" tiles never set `initial: true`).
+
+**Fix scoped to not touch Studio at all**, since the hook is shared: `useMermaid.js` gained an optional `{ requireInitial = true }` param — Studio's own call site is unchanged, byte-for-byte. `MFlowCanvas.jsx` alone passes `{ requireInitial: false }`. Its JSX now always mounts the diagram div (the dotted-grid canvas look) the moment a workflow is selected, with a new non-blocking `.mflow-diagram-empty` overlay shown only for the true zero-states case — reusing the existing "No Diagram Available" title/style classes, adapted text ("Add a state from the palette to begin.") per the task's own instruction not to invent new copy.
+
+**Verified live:** new empty workflow shows the canvas immediately with the overlay; a plain "State" tile (not Initial) now renders directly, no hidden-reveal step; "Initial State" still works too; the existing seeded `Document Approval` workflow loads identically to before; Studio, selected on the same plain-State-only workflow, still shows its own original "mark it Initial" message unchanged — confirming the shared hook's default behavior is untouched. Diamond/hub badges, Layers palette, right-click menu, and Process Docs (BPMN Standard) re-checked, unaffected. Zero console errors across every run. Full detail: `recover.md`'s matching 2026-08-16 entry.
+
 ## Session pausing — operator back in ~4 hours (2026-08-16)
 
-M-Files Flow's diamond-based workflow designer, automatic-transition grammar authoring, and the hub badge (entry directly above) are all complete and verified as of this point. Nothing mid-edit, nothing broken, dev server last confirmed live (port 3004, zero console errors).
+M-Files Flow's diamond-based workflow designer, automatic-transition grammar authoring, the hub badge, and the new-workflow canvas-visibility fix (entries directly above) are all complete and verified as of this point. Nothing mid-edit, nothing broken, dev server last confirmed live (port 3004, zero console errors).
 
 **"word" flagged as ambiguous across three threads, not two** — it already collided between the Conformity/M-Files investigation thread and the 2026-08-14 BPMN session per `BPMN_PROCESS_DOC.md` §10's own note; this session's own M-Files Flow work is now a third candidate with no codeword of its own. Recorded in `recover.md` so a future session checks context rather than silently defaulting to one. See `recover.md`'s matching 2026-08-16 pause entry for the full detail.
 

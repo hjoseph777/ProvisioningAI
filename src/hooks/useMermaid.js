@@ -17,7 +17,14 @@ import { parseCondition, isRenderable } from '../utils/transitionGrammar';
 // Zustand's resetAll() creates new object references via JSON.parse/stringify
 // so reference equality usually works, but the string key is a belt-and-suspenders
 // guard for edge cases (e.g. same workflow ID reused after reset).
-export const useMermaid = (workflow) => {
+export const useMermaid = (workflow, options = {}) => {
+  // requireInitial defaults to true, preserving the original behavior for
+  // every existing call site (Studio) untouched — M-Files Flow is the only
+  // caller that opts out, since its palette lets a state exist before any
+  // one of them is marked Initial and the canvas shouldn't stay hidden for
+  // that reason alone (see MFlowCanvas.jsx's own call site comment).
+  const { requireInitial = true } = options;
+
   // Derive a stable cache key from the actual content — not the object reference
   const workflowKey = workflow?.id || workflow?.name || '';
   const stateKey = workflow?.states.map(s => `${s.name}:${s.initial}:${s.terminal}:${s.color || ''}`).join('|') ?? '';
@@ -28,7 +35,7 @@ export const useMermaid = (workflow) => {
     if (!workflow) return null;
     const { states, transitions } = workflow;
     if (!states.length) return null;
-    if (!states.some(s => s.initial)) return null;
+    if (requireInitial && !states.some(s => s.initial)) return null;
 
     let d = 'stateDiagram-v2\n';
 
@@ -120,5 +127,5 @@ export const useMermaid = (workflow) => {
 
     return d;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workflowKey, stateKey, transKey, themeKey]); // includes workflow identity to avoid cross-tab memo reuse
+  }, [workflowKey, stateKey, transKey, themeKey, requireInitial]); // includes workflow identity to avoid cross-tab memo reuse
 };

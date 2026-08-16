@@ -407,6 +407,16 @@ path.transition.highlight {
   background-color:#F8FAFC;background-image:radial-gradient(#CBD5E1 1.5px, transparent 1.5px);background-size:24px 24px;background-position:0 0}
 .mflow-diagram.panning{cursor:grabbing}
 .mflow-diagram svg{width:100%;height:auto;display:block}
+/* Wraps .mflow-diagram so the empty-state message can sit as a non-blocking
+   overlay on top of the real (always-mounted) canvas instead of replacing
+   it — the dotted-grid background above IS the canvas, visible immediately
+   once a workflow exists, zero states or not. */
+.mflow-diagram-wrap{flex:1;display:flex;position:relative;min-height:0}
+.mflow-diagram-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  pointer-events:none;color:var(--dim);font-family:var(--display);text-align:center;padding:20px}
+.mflow-diagram-empty svg{opacity:.15;width:70px;height:70px;margin-bottom:12px}
+.mflow-diagram-empty .blueprint-title{font-size:15px;margin-bottom:4px}
+.mflow-diagram-empty .blueprint-sub{font-size:10.5px}
 
 /* Live workflow-data panel — mirrors Studio's full left panel (States,
    Transitions, Users, Properties, Business Rules). Reuses .cc-sec*

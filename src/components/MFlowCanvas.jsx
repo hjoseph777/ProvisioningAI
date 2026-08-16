@@ -180,7 +180,13 @@ export default function MFlowCanvas() {
   const canRedo = history.future.length > 0;
 
   const wf = getActive();
-  const mermaidStr = useMermaid(wf);
+  // requireInitial:false — this canvas's palette lets a state exist (State,
+  // End State) before any one is marked Initial, and the canvas going blank
+  // for that reason read as "hidden," not "empty" (confirmed: only the
+  // Initial State tile ever revealed it). Studio's own call to this same
+  // hook is untouched, still requires an Initial state by default — see
+  // useMermaid.js's own header comment.
+  const mermaidStr = useMermaid(wf, { requireInitial: false });
   const diagRef = useRef(null);
   const layoutRef = useRef({}); // id -> {el,cx,cy,hw,hh} — rebuilt every render, read by drag handlers
   // Free-pan offset — NOT native scroll. A scroll-based pan only moves
@@ -783,13 +789,28 @@ export default function MFlowCanvas() {
             </button>
           )}
         </div>
-        {!mermaidStr
+        {!wf
           ? <div className="blueprint-empty">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
               <div className="blueprint-title">No Diagram Available</div>
-              <div className="blueprint-sub">{wf ? 'Add at least one state and mark it Initial from the palette to begin.' : 'Select or create a workflow in Studio\'s tab strip first — this canvas shares the same workflows.'}</div>
+              <div className="blueprint-sub">Select or create a workflow in Studio's tab strip first — this canvas shares the same workflows.</div>
             </div>
-          : <div className="mflow-diagram" ref={diagRef} onClick={e => e.stopPropagation()}/>}
+          : <div className="mflow-diagram-wrap">
+              {/* Always mounted the moment a workflow exists — the diagram
+                  div itself (dotted-grid background) IS the visible canvas,
+                  not a placeholder swapped in only once content exists. The
+                  empty message below is a non-blocking overlay on top of it,
+                  not a replacement, so right-click/Select All still reaches
+                  the real canvas underneath even with zero states. */}
+              <div className="mflow-diagram" ref={diagRef} onClick={e => e.stopPropagation()}/>
+              {!mermaidStr && (
+                <div className="mflow-diagram-empty">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                  <div className="blueprint-title">No Diagram Available</div>
+                  <div className="blueprint-sub">Add a state from the palette to begin.</div>
+                </div>
+              )}
+            </div>}
 
         {wf && (wf.comments || []).map(c => (
           <div key={c.id} className="mflow-comment" style={{ left: c.x, top: c.y, borderTopColor: c.color }}
