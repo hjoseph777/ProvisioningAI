@@ -4,7 +4,7 @@
 
 **Project:** ProvisioningAI (Vault Provisioning Automation Platform)  
 **Phase:** V1 (Discovery + Documentation + Workflow Engine + Structured Index)  
-**Last Updated:** 2026-08-14  
+**Last Updated:** 2026-08-16  
 **Repository:** [REPO_LINK]  
 **Team:** [TEAM_SIZE] developers  
 
@@ -1803,11 +1803,11 @@ Reported bug: `+ Workflow` created a new workflow but the canvas stayed hidden �
 
 **Bug surfaced while using the feature**: the `[*]` Initial-state entry marker doesn't follow its state when dragged ("detach, can't reattach"). Investigated live before fixing — confirmed via screenshots and DOM inspection that the marker's edge path stays byte-identical before/after a real drag, root-caused to `MFlowCanvas.jsx`'s node-centers-building loop excluding the marker's empty-label node from `nodeCenters` entirely, which made the marker edge's own `fromId` misattribute to the state itself (`fromId===toId`) and get silently dropped from `edgeList` — never redrawn, on any render, hence "can't reattach." Confirmed drag-to-connect itself unaffected in both directions. Fixed by giving the marker a synthetic tracked id (folding it into the same `nodeCenters`/`edgeList`/`redrawEdge` mechanism real states already use, not new logic) plus a `<circle>`-specific bbox fallback (it has no rect/polygon child). Re-verified with the identical reproduction script: the edge now correctly recomputes to the node's real post-drag position. Full detail, evidence, and screenshots: `recover.md`'s matching 2026-08-16 entry.
 
-## Session pausing — operator back in ~4 hours (2026-08-16)
+## Session stopped for the day — resume codeword "word" (2026-08-16)
 
-M-Files Flow's diamond-based workflow designer, automatic-transition grammar authoring, the hub badge, the new-workflow canvas-visibility fix, drag-to-connect, and the Initial-state marker fix (entries directly above) are all complete and verified as of this point. Nothing mid-edit, nothing broken, dev server last confirmed live (port 3004, zero console errors).
+M-Files Flow's diamond-based workflow designer, automatic-transition grammar authoring, the hub badge, the new-workflow canvas-visibility fix, drag-to-connect, and the Initial-state marker fix (entries directly above) are all complete, real-Playwright-verified, committed, and pushed (`85949b9`) as of this point. Nothing mid-edit, nothing broken, dev server last confirmed live (port 3004, zero console errors). No specific task queued for next session — everything asked for today is closed out clean.
 
-**"word" flagged as ambiguous across three threads, not two** — it already collided between the Conformity/M-Files investigation thread and the 2026-08-14 BPMN session per `BPMN_PROCESS_DOC.md` §10's own note; this session's own M-Files Flow work is now a third candidate with no codeword of its own. Recorded in `recover.md` so a future session checks context rather than silently defaulting to one. See `recover.md`'s matching 2026-08-16 pause entry for the full detail.
+**"word" is confirmed as the resume codeword for tomorrow, but is still ambiguous across three threads** — it already collided between the Conformity/M-Files investigation thread and the 2026-08-14 BPMN session per `BPMN_PROCESS_DOC.md` §10's own note; this session's own M-Files Flow work is a third candidate with no codeword of its own. Check context before assuming which one is meant, same standing rule as always. Full resume detail for the M-Files Flow thread specifically: `recover.md`'s matching 2026-08-16 "Session stopped for the day" entry.
 
 ---
 
