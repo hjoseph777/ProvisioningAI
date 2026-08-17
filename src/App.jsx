@@ -407,6 +407,16 @@ path.transition.highlight {
   background-color:#F8FAFC;background-image:radial-gradient(#CBD5E1 1.5px, transparent 1.5px);background-size:24px 24px;background-position:0 0}
 .mflow-diagram.panning{cursor:grabbing}
 .mflow-diagram svg{width:100%;height:auto;display:block}
+/* Drag-to-connect handle — visual precedent checked against BPMN Standard's
+   own "magic connector" (react-flow__handle-bottom, hidden until node
+   hover, accent-colored) but reimplemented as raw SVG here since Mermaid
+   gives no Handle/onConnect equivalent to reuse; only the visual language
+   (accent color, hidden-until-hover) carries over, not the mechanism.
+   Reuses this canvas's own selection-highlight blue rather than a new
+   color. */
+.mflow-connect-handle{opacity:0;fill:var(--a3);stroke:var(--s1);stroke-width:1.5px;cursor:crosshair;transition:opacity .15s}
+.node:hover .mflow-connect-handle{opacity:1}
+.mflow-connect-dragline{stroke:var(--a3);stroke-width:2px;stroke-dasharray:5 4;pointer-events:none}
 /* Wraps .mflow-diagram so the empty-state message can sit as a non-blocking
    overlay on top of the real (always-mounted) canvas instead of replacing
    it — the dotted-grid background above IS the canvas, visible immediately

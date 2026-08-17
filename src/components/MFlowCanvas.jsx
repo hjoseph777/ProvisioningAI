@@ -141,6 +141,7 @@ export default function MFlowCanvas() {
   const getActive = useWorkflowStore(s => s.getActive);
   const activeId = useWorkflowStore(s => s.activeId);
   const addState = useWorkflowStore(s => s.addState);
+  const addTransition = useWorkflowStore(s => s.addTransition);
   const updateState = useWorkflowStore(s => s.updateState);
   const updateStatePosition = useWorkflowStore(s => s.updateStatePosition);
   const renameState = useWorkflowStore(s => s.renameState);
@@ -426,11 +427,30 @@ export default function MFlowCanvas() {
         // ── Resolve every edge's real fromId/toId geometrically (Mermaid's
         // path order isn't guaranteed to match the source text order) ──
         const nodeCenters = {};
+        let markerIndex = 0;
         svgEl.querySelectorAll('.node').forEach(n => {
-          const lbl = n.querySelector('.nodeLabel,text,span')?.textContent?.trim() || ''; if (!lbl) return;
-          const id = sanitizeStateId(lbl);
+          const lbl = n.querySelector('.nodeLabel,text,span')?.textContent?.trim() || '';
+          // Real states key on their own sanitized name, same as always.
+          // Mermaid's [*] start-marker pseudostate has no label — it used
+          // to be skipped here entirely (`if (!lbl) return`), which is
+          // exactly why it never moved: excluded from nodeCenters means
+          // excluded from nearest()'s candidate list below, so the
+          // [*]-->state edge's own fromId resolved to the only OTHER node
+          // nearby — usually the state it points at — making fromId===toId
+          // and getting silently dropped by that guard, never entering
+          // edgeList, never redrawn. A synthetic id keeps it invisible to
+          // every real-state lookup (wf.states.forEach below only ever
+          // looks up sanitizeStateId(name)) while giving nearest()/
+          // redrawEdge a genuine entry to resolve the marker edge against —
+          // the same mechanism real states already use correctly, not a
+          // new one.
+          const id = lbl ? sanitizeStateId(lbl) : `__mflow_marker_${markerIndex++}__`;
           const rectOrPoly = n.querySelector('rect, polygon');
-          const bbox = rectOrPoly?.getBBox?.() ?? { width: 80, height: 30 };
+          // The marker's own shape is a bare <circle>, not a rect/polygon —
+          // falling through to the 80x30 default here (as this used to,
+          // back when the marker was never tracked at all) would size its
+          // connection point far too large for a ~7px dot.
+          const bbox = rectOrPoly?.getBBox?.() ?? n.querySelector('circle')?.getBBox?.() ?? { width: 80, height: 30 };
           const hw = n.dataset.gwHw ? parseFloat(n.dataset.gwHw) : bbox.width / 2;
           const hh = n.dataset.gwHh ? parseFloat(n.dataset.gwHh) : bbox.height / 2;
           const mt = /translate\(\s*([-\d.]+)[,\s]+([-\d.]+)\s*\)/.exec(n.getAttribute('transform') || '');
@@ -512,6 +532,107 @@ export default function MFlowCanvas() {
             setContextMenu({ x: e.clientX, y: e.clientY, type: 'node', name: lbl });
           };
 
+          // ── Drag-to-connect handle — the one interaction this canvas never
+          // had: Mermaid gives no native connection-handle/drag the way
+          // React Flow's <Handle> does for BPMN Standard (checked its
+          // "magic connector" CSS for the visual precedent — a small dot at
+          // the node edge, hidden until hover — but the underlying mechanism
+          // there is React Flow's own onConnect/handles, nothing to import
+          // here; this is genuinely new interaction-layer code). A small
+          // circle at the node's right edge, visible on hover via CSS
+          // (`.node:hover .mflow-connect-handle`), reusing this canvas's own
+          // accent color (`--a3`, the same blue the selection highlight
+          // already uses) rather than inventing a new one. Positioned as a
+          // CHILD of the node's own <g> in local coordinates, so it moves
+          // for free whenever the node is repositioned — no separate
+          // tracking needed. ──
+          if (lbl) {
+            const info = layoutRef.current.nodeCenters[stId];
+            const hw = info?.hw ?? 40;
+            const handle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            handle.setAttribute('cx', String(hw));
+            handle.setAttribute('cy', '0');
+            handle.setAttribute('r', '5');
+            handle.setAttribute('class', 'mflow-connect-handle');
+            n.appendChild(handle);
+
+            // A click that never became a drag (mousedown+mouseup on the
+            // handle with no movement) would otherwise bubble as a real
+            // click and hit n.onclick, toggling selection unexpectedly —
+            // suppress it explicitly rather than relying on it just not
+            // happening to fire.
+            handle.onclick = e => e.stopPropagation();
+
+            handle.onmousedown = e => {
+              e.stopPropagation();
+              e.preventDefault();
+              if (lockedRef.current) return;
+              const startInfo = layoutRef.current.nodeCenters[stId];
+              if (!startInfo) return;
+
+              const dragLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+              dragLine.setAttribute('class', 'mflow-connect-dragline');
+              dragLine.setAttribute('x1', String(startInfo.cx + startInfo.hw));
+              dragLine.setAttribute('y1', String(startInfo.cy));
+              dragLine.setAttribute('x2', String(startInfo.cx + startInfo.hw));
+              dragLine.setAttribute('y2', String(startInfo.cy));
+              svgEl.appendChild(dragLine);
+
+              let targetId = null;
+              const clearTargetHighlight = id => {
+                const t = layoutRef.current.nodeCenters[id];
+                const shape = t?.el.querySelector('rect, polygon');
+                if (shape) { shape.style.stroke = ''; shape.style.strokeWidth = ''; }
+              };
+              const setTargetHighlight = id => {
+                const t = layoutRef.current.nodeCenters[id];
+                const shape = t?.el.querySelector('rect, polygon');
+                if (shape) { shape.style.stroke = 'var(--green)'; shape.style.strokeWidth = '3'; }
+              };
+
+              const onMove = ev => {
+                const ctm = svgEl.getScreenCTM();
+                const pt = svgEl.createSVGPoint();
+                pt.x = ev.clientX; pt.y = ev.clientY;
+                const svgPt = ctm ? pt.matrixTransform(ctm.inverse()) : pt;
+                dragLine.setAttribute('x2', String(svgPt.x));
+                dragLine.setAttribute('y2', String(svgPt.y));
+
+                // Hit-test whatever's really under the cursor (dragLine has
+                // pointer-events:none, see CSS, so it never shadows this).
+                const elUnder = document.elementFromPoint(ev.clientX, ev.clientY);
+                const targetEl = elUnder?.closest('.node');
+                const targetLbl = targetEl?.querySelector('.nodeLabel,text,span')?.textContent?.trim() || '';
+                const newTargetId = targetLbl ? sanitizeStateId(targetLbl) : null;
+                const validNewTarget = (newTargetId && newTargetId !== stId) ? newTargetId : null;
+                if (validNewTarget !== targetId) {
+                  if (targetId) clearTargetHighlight(targetId);
+                  targetId = validNewTarget;
+                  if (targetId) setTargetHighlight(targetId);
+                }
+              };
+              const onUp = () => {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                dragLine.remove();
+                if (targetId) clearTargetHighlight(targetId);
+                // Dropped on a real, different state — create the
+                // transition. Dropped on empty canvas, the source node
+                // itself, or nothing valid — clean up only, no dangling
+                // transition, no partial state.
+                if (targetId) {
+                  const targetSt = wf.states.find(s => sanitizeStateId(s.name) === targetId);
+                  if (targetSt) {
+                    takeSnapshot();
+                    addTransition(activeId, { from: lbl, to: targetSt.name });
+                  }
+                }
+              };
+              document.addEventListener('mousemove', onMove);
+              document.addEventListener('mouseup', onUp);
+            };
+          }
+
           n.onmousedown = e => {
             e.stopPropagation();
             if (lockedRef.current) return; // canvas locked — selection still works via onclick, dragging doesn't
@@ -570,7 +691,7 @@ export default function MFlowCanvas() {
       } catch { if (!dead && diagRef.current) diagRef.current.innerHTML = '<div style="color:var(--red);font-size:11px;padding:16px">Diagram error</div>'; }
     })();
     return () => { dead = true; };
-  }, [mermaidStr, wf?.states, activeId, updateStatePosition, takeSnapshot]);
+  }, [mermaidStr, wf?.states, activeId, updateStatePosition, takeSnapshot, addTransition]);
 
   // New states need a real default name, not blank — a blank-named state is
   // deliberately invisible in the diagram (useMermaid.js: `if (!name)

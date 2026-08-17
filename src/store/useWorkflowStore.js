@@ -296,10 +296,14 @@ export const useWorkflowStore = create((set, get) => ({
   })),
 
   // ── Transition CRUD ────────────────────────────────────────
-  addTransition: (wfId) => set(s => ({
+  // Optional patch — same precedent as addState above — lets a caller (e.g.
+  // M-Files Flow's drag-to-connect) supply from/to directly instead of a
+  // separate updateTransition round-trip. Studio's own "+ Add" call stays
+  // zero-arg, unaffected.
+  addTransition: (wfId, patch = {}) => set(s => ({
     workflows: s.workflows.map(w => w.id !== wfId ? w : {
       ...w,
-      transitions: [...w.transitions, { id: makeId(), from: '', to: '', conditions: null, permissions: null }]
+      transitions: [...w.transitions, { id: makeId(), from: '', to: '', conditions: null, permissions: null, ...patch }]
     })
   })),
 
