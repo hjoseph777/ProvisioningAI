@@ -25,6 +25,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProvisioningAI.Workflow", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProvisioningAI.MFilesConnectors", "ProvisioningAI.MFilesConnectors\ProvisioningAI.MFilesConnectors.csproj", "{F433074F-0080-412A-8A9F-19871A337748}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProvisioningAI.Workflow.Cli", "ProvisioningAI.Workflow.Cli\ProvisioningAI.Workflow.Cli.csproj", "{3917EB73-AED8-406D-AFB6-31B9AE35642B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -78,5 +80,9 @@ Global
 		{F433074F-0080-412A-8A9F-19871A337748}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F433074F-0080-412A-8A9F-19871A337748}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F433074F-0080-412A-8A9F-19871A337748}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3917EB73-AED8-406D-AFB6-31B9AE35642B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3917EB73-AED8-406D-AFB6-31B9AE35642B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3917EB73-AED8-406D-AFB6-31B9AE35642B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3917EB73-AED8-406D-AFB6-31B9AE35642B}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

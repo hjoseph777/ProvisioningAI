@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AP invoice lifecycle</title>
+<style>
+  body { background:#ffffff; margin:0; padding:24px; font-family: Arial, sans-serif; }
+  #erd svg { max-width: 100%; height: auto; display:block; margin:0 auto; }
+</style>
+</head>
+<body>
+<div id="erd">Loading diagram...</div>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+window.addEventListener('DOMContentLoaded', function () {
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'base',
+    fontFamily: 'Arial, sans-serif',
+    themeVariables: { fontSize: '20px' },
+    flowchart: { nodeSpacing: 60, rankSpacing: 80 }
+  });
+
+  var src = 'flowchart TB\n' +
+    '    classDef default fill:#ffffff,stroke:#333333,stroke-width:2px,color:#000000;\n' +
+    '    classDef startNode fill:#d4edda,stroke:#28a745,stroke-width:2px,color:#155724;\n' +
+    '    classDef reviewNode fill:#cce5ff,stroke:#007bff,stroke-width:2px,color:#004085;\n' +
+    '    classDef rejectNode fill:#f8d7da,stroke:#dc3545,stroke-width:2px,color:#721c24;\n' +
+    '    classDef approveNode fill:#fff3cd,stroke:#ffc107,stroke-width:2px,color:#856404;\n' +
+    '    classDef finalNode fill:#d1ecf1,stroke:#17a2b8,stroke-width:2px,color:#0c5460;\n' +
+    '\n' +
+    '    Draft([Draft]):::startNode\n' +
+    '    Submit[Submit for approval]:::default\n' +
+    '\n' +
+    '    subgraph "Under Review"\n' +
+    '        ManagerL1[Manager L1 Review]:::reviewNode\n' +
+    '        FinanceL2[Finance L2 Review]:::reviewNode\n' +
+    '    end\n' +
+    '\n' +
+    '    Rejected([Rejected]):::rejectNode\n' +
+    '    Approved([Approved]):::approveNode\n' +
+    '    Posted([Posted]):::finalNode\n' +
+    '    PaymentConfirmed([Payment Confirmed]):::finalNode\n' +
+    '    Paid([Paid]):::finalNode\n' +
+    '\n' +
+    '    Draft -->|Submit for approval| Submit\n' +
+    '    Submit -->|Route to Manager| ManagerL1\n' +
+    '    ManagerL1 -->|Manager approve| FinanceL2\n' +
+    '    ManagerL1 -->|Manager reject| Rejected\n' +
+    '    FinanceL2 -->|Finance Approved| Approved\n' +
+    '    FinanceL2 -->|Finance rejects| Rejected\n' +
+    '    Rejected -->|Clerk revises| Draft\n' +
+    '    Approved -->|Post entry| Posted\n' +
+    '    Posted -->|Confirm payment| PaymentConfirmed\n' +
+    '    PaymentConfirmed -->|Mark as Paid| Paid';
+
+  mermaid.render('ap-svg', src).then(function (result) {
+    document.getElementById('erd').innerHTML = result.svg;
+
+    // Attach a BPMN-style exclusive-gateway diamond tab to the outgoing
+    // (bottom) edge of each decision node - Manager L1 Review and
+    // Finance L2 Review - since these are the two points where the
+    // process actually branches (approve vs reject).
+    var decisionNodeIds = ['ManagerL1', 'FinanceL2'];
+    decisionNodeIds.forEach(function (id) {
+      var node = document.querySelector('#erd svg [id*="flowchart-' + id + '-"]');
+      if (!node) return;
+      var rect = node.querySelector('rect');
+      if (!rect) return;
+      var x = parseFloat(rect.getAttribute('x'));
+      var y = parseFloat(rect.getAttribute('y'));
+      var w = parseFloat(rect.getAttribute('width'));
+      var h = parseFloat(rect.getAttribute('height'));
+      var cx = x + w / 2;
+      var cy = y + h;
+      var size = 16;
+
+      var ns = 'http://www.w3.org/2000/svg';
+      var diamond = document.createElementNS(ns, 'rect');
+      diamond.setAttribute('x', cx - size / 2);
+      diamond.setAttribute('y', cy - size / 2);
+      diamond.setAttribute('width', size);
+      diamond.setAttribute('height', size);
+      diamond.setAttribute('transform', 'rotate(45 ' + cx + ' ' + cy + ')');
+      diamond.setAttribute('fill', '#ffffff');
+      diamond.setAttribute('stroke', '#007bff');
+      diamond.setAttribute('stroke-width', '2');
+      node.appendChild(diamond);
+    });
+  }).catch(function (err) {
+    document.getElementById('erd').innerText = 'Error rendering diagram: ' + err.message;
+  });
+});
+</script>
+</body>
+</html>

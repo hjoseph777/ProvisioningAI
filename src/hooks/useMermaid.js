@@ -47,6 +47,19 @@ export const useMermaid = (workflow, options = {}) => {
       if (!name) return;
       const id = name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
       stateIds.push(id);
+      // Bare `state ID` line, IN ADDITION to the `ID : name` label line below.
+      // The label line alone is invisible to ProvisioningAI.Workflow's
+      // MermaidParser — it only discovers a state's existence from edge
+      // endpoints or this exact `state X` form (MfilesProperties.md §3.5's
+      // own documented "explicit declaration" convention). Without it, a
+      // freshly placed state with zero transitions yet never reaches the
+      // Live Translating Split-Screen View's output at all — confirmed live
+      // via the translator returning fewer states than the diagram actually
+      // has. This line changes nothing about rendering (Mermaid tolerates a
+      // bare declaration alongside a label line for the same id, confirmed
+      // live); it exists purely so the translator's own supported grammar
+      // sees every state immediately, not just connected ones.
+      d += `  state ${id}\n`;
       d += `  ${id} : ${name}\n`;
       if (s.initial) d += `  [*] --> ${id}\n`;
       // Mermaid's own native end-marker syntax — no custom SVG needed, unlike
@@ -93,6 +106,17 @@ export const useMermaid = (workflow, options = {}) => {
     promotedGroups.forEach((g, i) => {
       const id = `gw_${i}`;
       hubDeclId.set(g.id, id);
+      // Bare `state ID` line, same reason as every ordinary state above: the
+      // `ID : label` line alone is invisible to MermaidParser's DeclaredStates —
+      // once ANY state in the diagram uses explicit declarations, the parser
+      // stops auto-discovering entirely, so a hub missing this line vanishes
+      // from the translated plan's own State list even though its edges still
+      // parse. Every edge touching it (both into and out of the hub) then fails
+      // MFilesDiagramView's `pos[state]` lookup and is silently dropped — not
+      // just undashed, missing outright. Confirmed live: an automatic
+      // transition feeding a 2+-source Gateway hub never appeared on the
+      // M-Files Diagram tab at all until this line was added.
+      d += `  state ${id}\n`;
       d += `  ${id} : ${gatewayLabel(g.id)}\n`;
     });
 
@@ -116,9 +140,17 @@ export const useMermaid = (workflow, options = {}) => {
       const g = (t.group || '').trim();
       if (g && promotedIds.has(g)) {
         const hubId = hubDeclId.get(g);
-        const inEdge = `${f} --> ${hubId}`, outEdge = `${hubId} --> ${to}${labelSuffix}`;
+        // The condition belongs to THIS source's own leg into the hub — it governs
+        // when this particular incoming transition fires, not the hub's shared
+        // downstream fan-out (which can be reached via multiple sources with
+        // different, even conflicting, conditions). Previously labelSuffix was
+        // attached to the outgoing hub->target edge instead, which silently
+        // dropped every incoming automatic condition (dedup key ignores it anyway,
+        // `${hubId} --> ${to}`) and could misattribute one source's condition onto
+        // a shared edge every other source also uses.
+        const inEdge = `${f} --> ${hubId}${labelSuffix}`, outEdge = `${hubId} --> ${to}`;
         if (!emittedHubEdges.has(inEdge))  { d += `  ${inEdge}\n`;  emittedHubEdges.add(inEdge); }
-        if (!emittedHubEdges.has(`${hubId} --> ${to}`)) { d += `  ${outEdge}\n`; emittedHubEdges.add(`${hubId} --> ${to}`); }
+        if (!emittedHubEdges.has(outEdge)) { d += `  ${outEdge}\n`; emittedHubEdges.add(outEdge); }
         return;
       }
 

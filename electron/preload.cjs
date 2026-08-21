@@ -32,3 +32,11 @@ contextBridge.exposeInMainWorld('file', {
   // returns: { ok, filePath } | { ok: false, cancelled: true }
   save: (payload) => ipcRenderer.invoke('file:save', payload),
 });
+
+contextBridge.exposeInMainWorld('workflowTranslator', {
+  // Spawns ProvisioningAI.Workflow.Cli fresh, feeds it Mermaid text over
+  // stdin, returns its parsed plan JSON (PlanFormatter.ToJson shape).
+  // payload: { mermaid }
+  // returns: { ok, plan } | { ok: false, error }
+  translate: (payload) => ipcRenderer.invoke('workflow:translate', payload),
+});

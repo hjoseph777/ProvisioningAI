@@ -370,7 +370,17 @@ path.transition.highlight {
    with BPMN's, so the two canvases stay stylistically independent (one
    could change without silently affecting the other) even though they
    currently look alike. */
-.mflow-shell{flex:1;display:flex;min-height:0;overflow:hidden;background:var(--bg)}
+/* .mflow-split(-left/-right/-handle) — the permanent split-screen wrapper
+   added for the Live Translating Split-Screen View. .mflow-shell used to be
+   cc-content-area's direct flex child (flex:1); now it's nested one level
+   deeper inside a react-resizable-panels Panel, so it fills that Panel's
+   own 100% height instead of flex-growing directly. */
+.mflow-split{flex:1;min-height:0;overflow:hidden}
+.mflow-split-left{height:100%;overflow:hidden}
+.mflow-split-right{height:100%;overflow:hidden;display:flex;flex-direction:column}
+.mflow-split-handle{width:5px;background:var(--border);cursor:col-resize;transition:background .15s;position:relative}
+.mflow-split-handle:hover,.mflow-split-handle[data-resize-handle-active]{background:var(--a3)}
+.mflow-shell{height:100%;display:flex;min-height:0;overflow:hidden;background:var(--bg)}
 .mflow-canvas-area{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
 .mflow-status-line{flex-shrink:0;padding:8px 16px;font-size:10px;font-family:var(--mono);color:var(--mid);border-bottom:1px solid var(--border);background:var(--s1);display:flex;align-items:center;justify-content:space-between;gap:8px}
 .mflow-clear-btn{font-size:9px;font-family:var(--mono);padding:3px 9px;border-radius:3px;border:1px solid var(--border);background:transparent;color:var(--mid);cursor:pointer;transition:all .15s}
@@ -406,7 +416,20 @@ path.transition.highlight {
 .mflow-diagram{flex:1;overflow:hidden;display:flex;align-items:flex-start;justify-content:center;padding:18px;cursor:grab;
   background-color:#F8FAFC;background-image:radial-gradient(#CBD5E1 1.5px, transparent 1.5px);background-size:24px 24px;background-position:0 0}
 .mflow-diagram.panning{cursor:grabbing}
-.mflow-diagram svg{width:100%;height:auto;display:block}
+/* flex-shrink:0 is load-bearing, not cosmetic: .mflow-diagram is a flex
+   container, and JS (growViewBoxToFit/the zoom effect/Fit) sets this svg's
+   style.width directly to control zoom. Without flex-shrink:0, the CSS
+   default (flex-shrink:1) lets the flex container silently render the svg
+   SMALLER than its own requested width whenever that width exceeds the
+   container — the code has no idea this clamping happened, so
+   getScreenCTM()'s real scale ends up smaller than the zoom value the code
+   assumes. During a node drag, toUserDelta() divides by that wrong
+   (too-small) scale, producing inflated position deltas, which grow the
+   viewBox even further next frame — a real, confirmed-live exponential
+   feedback loop (a ~650px screen-space drag inflated the viewBox from
+   ~420 to ~6,459 units over ~20 mousemove steps), collapsing the effective
+   zoom for every node on screen, not just the dragged one.*/
+.mflow-diagram svg{width:100%;height:auto;display:block;flex-shrink:0}
 /* Drag-to-connect handle — visual precedent checked against BPMN Standard's
    own "magic connector" (react-flow__handle-bottom, hidden until node
    hover, accent-colored) but reimplemented as raw SVG here since Mermaid
@@ -417,6 +440,29 @@ path.transition.highlight {
 .mflow-connect-handle{opacity:0;fill:var(--a3);stroke:var(--s1);stroke-width:1.5px;cursor:crosshair;transition:opacity .15s}
 .node:hover .mflow-connect-handle{opacity:1}
 .mflow-connect-dragline{stroke:var(--a3);stroke-width:2px;stroke-dasharray:5 4;pointer-events:none}
+.mflow-group-bg{fill:rgba(74,159,255,.05);stroke:var(--border);stroke-width:1.4px;stroke-dasharray:6 5;pointer-events:none}
+.mflow-group-label{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.4px;fill:var(--mid);text-transform:uppercase;pointer-events:none}
+/* Edge right-click hit area — an invisible, much wider sibling of the real
+   transition line (2px visible vs. this 14px), same reasoning BPMN
+   Standard's own FlowEdge.jsx widens its interaction stroke: a thin visible
+   line is a poor mouse/Playwright target on its own. */
+.mflow-edge-hit{stroke:transparent;stroke-width:14px;cursor:context-menu;pointer-events:stroke}
+/* Reconnect handles — sit right at an edge's own start/end point. Unlike
+   .mflow-connect-handle (hidden until the NODE is hovered), these stay
+   dimly visible always, since they're small and easy to miss otherwise —
+   discoverability matters more here than tidiness, there's no per-node
+   clutter concern the way there would be with N nodes each showing one. */
+.mflow-edge-endpoint{opacity:.45;fill:var(--a3);stroke:var(--s1);stroke-width:1.2px;cursor:grab;transition:opacity .15s}
+.mflow-edge-endpoint:hover{opacity:1;cursor:grabbing}
+/* Floating multi-select toolbar — built fresh for this canvas (see
+   MFlowCanvas.jsx's updateToolbarPos), NOT a port of BPMN's NodeToolbar.
+   Visual language matches .mflow-view-controls (same pill/chip look this
+   canvas already established) rather than .bpmn-context-menu's vertical
+   list, since this is a horizontal action bar, not a menu. */
+.mflow-selection-toolbar{position:absolute;transform:translate(-50%,-100%);display:flex;align-items:center;gap:4px;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 6px;box-shadow:0 4px 14px rgba(0,0,0,.35);z-index:20;white-space:nowrap}
+.mflow-selection-toolbar-count{font-size:9px;font-family:var(--mono);color:var(--dim);padding:0 4px}
+.mflow-selection-toolbar button{display:flex;align-items:center;gap:3px;background:transparent;border:none;border-radius:3px;color:var(--mid);cursor:pointer;padding:3px 7px;font-size:9px;font-family:var(--mono);transition:all .15s}
+.mflow-selection-toolbar button:hover{color:var(--text);background:var(--s3)}
 /* Wraps .mflow-diagram so the empty-state message can sit as a non-blocking
    overlay on top of the real (always-mounted) canvas instead of replacing
    it — the dotted-grid background above IS the canvas, visible immediately
@@ -447,12 +493,67 @@ path.transition.highlight {
 .mflow-diamond-badge{color:#7c8cff;flex-shrink:0;margin-left:2px}
 .mflow-hub-badge{color:var(--green);flex-shrink:0;margin-left:2px}
 
+/* ── LiveTranslationView (right-hand split-screen panel) ── */
+.mflow-ltv{height:100%;display:flex;flex-direction:column;background:var(--s1);overflow:hidden}
+.mflow-ltv-head{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border);background:var(--s2)}
+.mflow-ltv-tabs{display:flex;gap:2px}
+.mflow-ltv-tabs button{font-size:9.5px;font-family:var(--mono);padding:4px 9px;border-radius:3px;border:1px solid transparent;background:transparent;color:var(--mid);cursor:pointer;transition:all .15s}
+.mflow-ltv-tabs button:hover{color:var(--text);border-color:var(--border)}
+.mflow-ltv-tabs button.on{color:var(--a3);background:rgba(74,159,255,.1);border-color:rgba(74,159,255,.3)}
+.mflow-ltv-syncing{display:flex;align-items:center;gap:5px;font-size:9px;color:var(--a3);flex-shrink:0}
+.mflow-ltv-spin{animation:mflow-ltv-spin .9s linear infinite}
+@keyframes mflow-ltv-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+.mflow-ltv-error{flex-shrink:0;padding:7px 10px;font-size:10px;color:var(--red);background:rgba(255,61,90,.08);border-bottom:1px solid var(--border)}
+.mflow-ltv-body{flex:1;overflow-y:auto;padding:12px}
+.mflow-ltv-empty{font-size:10px;color:var(--dim);font-style:italic;padding:6px 2px}
+.mflow-ltv-empty-root{padding:20px;text-align:center}
+.mflow-ltv-fade{animation:mflow-ltv-fadein .2s ease}
+@keyframes mflow-ltv-fadein{from{opacity:0}to{opacity:1}}
+
+.mflow-ltv-diagram-wrap{overflow:auto}
+.mflow-ltv-flat-label{font-size:9px;font-weight:600;color:var(--mid);letter-spacing:.6px;text-transform:uppercase;margin:14px 0 6px}
+.mflow-ltv-flat-label:first-child{margin-top:0}
+.mflow-ltv-states{display:flex;flex-wrap:wrap;gap:8px}
+.mflow-ltv-state-box{min-width:96px;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--s2);transition:border-color .12s,box-shadow .12s}
+.mflow-ltv-state-box.hover{border-color:var(--a3);box-shadow:0 0 0 1px var(--a3),0 0 8px rgba(74,159,255,.35)}
+.mflow-ltv-state-name{font-size:11px;color:var(--text);font-weight:600}
+.mflow-ltv-state-badges{display:flex;gap:4px;margin-top:4px}
+.mflow-ltv-badge{font-size:8px;padding:1px 5px;border-radius:3px;letter-spacing:.3px}
+.mflow-ltv-badge-initial{color:var(--green);background:rgba(0,200,112,.12)}
+.mflow-ltv-badge-terminal{color:var(--gold);background:rgba(240,165,0,.12)}
+.mflow-ltv-state-caption{margin-top:5px;font-size:8.5px;color:var(--dim);font-style:italic}
+
+.mflow-ltv-transitions{display:flex;flex-direction:column;gap:6px}
+.mflow-ltv-trans-row{padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--s2)}
+.mflow-ltv-trans-path{font-size:10.5px;color:var(--text)}
+.mflow-ltv-arrow{color:var(--mid);margin:0 3px}
+.mflow-ltv-trans-meta{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
+.mflow-ltv-chip{font-size:8px;padding:1px 6px;border-radius:8px;border:1px solid var(--border);color:var(--mid)}
+.mflow-ltv-chip-warn{color:var(--gold);border-color:var(--gold)}
+.mflow-ltv-trans-rule{margin-top:5px;font-size:8.5px;color:var(--dim)}
+
+.mflow-ltv-json{font-size:9.5px;line-height:1.5;color:var(--text);white-space:pre-wrap;word-break:break-word;margin:0}
+
+.mflow-ltv-status-banner{display:flex;align-items:center;gap:6px;font-size:10px;font-weight:600;padding:7px 10px;border-radius:4px;margin-bottom:10px}
+.mflow-ltv-status-banner.ok{color:var(--green);background:rgba(0,200,112,.1)}
+.mflow-ltv-status-banner.error{color:var(--red);background:rgba(255,61,90,.1)}
+.mflow-ltv-issue{display:flex;gap:7px;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--s2);margin-bottom:6px}
+.mflow-ltv-issue-error{border-color:rgba(255,61,90,.35)}
+.mflow-ltv-issue-error svg{color:var(--red);flex-shrink:0}
+.mflow-ltv-issue-warning svg{color:var(--gold);flex-shrink:0}
+.mflow-ltv-issue-head{font-size:9.5px;font-weight:600;color:var(--text)}
+.mflow-ltv-issue-msg{font-size:9.5px;color:var(--mid);margin-top:3px;line-height:1.4}
+.mflow-ltv-issue-edge{font-size:8.5px;color:var(--dim);margin-top:3px;font-style:italic}
+
 .mflow-pal-shell{width:44px;flex-shrink:0;position:relative;z-index:20}
 .mflow-pal-shell.pinned{width:240px}
 .mflow-pal-panel{position:relative;width:44px;height:100%;display:flex;flex-direction:column;overflow:hidden;background:rgba(7,17,31,0.85);backdrop-filter:blur(12px);border-right:1px solid var(--border)}
 .mflow-pal-shell.pinned .mflow-pal-panel{width:240px;transition:width .15s ease}
-.mflow-pal-head{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px;border-bottom:1px solid var(--border)}
-.mflow-pal-title{font-size:9px;color:var(--mid);letter-spacing:.5px;text-transform:uppercase}
+.mflow-pal-head{flex-shrink:0;display:flex;align-items:center;gap:6px;padding:8px;border-bottom:1px solid var(--border)}
+.mflow-pal-search-wrap{flex:1;position:relative;display:flex;align-items:center;min-width:0}
+.mflow-pal-search-icon{position:absolute;left:7px;color:var(--dim);pointer-events:none}
+.mflow-pal-search{width:100%;padding:5px 8px 5px 24px;background:var(--s3);border:1px solid var(--border);border-radius:5px;color:var(--text);font-family:var(--mono);font-size:9.5px}
+.mflow-pal-search:focus{outline:none;border-color:var(--a2)}
 .mflow-pal-toggle{width:20px;height:20px;flex-shrink:0;border-radius:4px;border:1px solid var(--border);background:linear-gradient(180deg,var(--s3),var(--s2));color:var(--mid);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s}
 .mflow-pal-toggle:hover{color:var(--a3);border-color:var(--a2)}
 .mflow-pal-toggle.active{color:var(--a3);border-color:var(--a2);background:rgba(74,159,255,.12)}
@@ -464,8 +565,16 @@ path.transition.highlight {
 .mflow-pal-tile:hover{border-color:var(--a2);color:var(--a3);background:var(--s4)}
 .mflow-pal-tile svg{flex-shrink:0}
 .mflow-pal-tile-label{white-space:nowrap}
+.mflow-pal-empty{font-size:9.5px;color:var(--dim);padding:6px 2px}
+/* Connectors' info note — deliberately not tile-shaped, so it reads as
+   explanatory text (this canvas's real drag-to-connect mechanism) rather
+   than a broken/disabled control. */
+.mflow-pal-info{display:flex;align-items:flex-start;gap:7px;padding:7px 8px;background:rgba(74,159,255,.06);border:1px solid rgba(74,159,255,.18);border-radius:6px;color:var(--mid);font-size:9.5px;line-height:1.5}
+.mflow-pal-info svg{flex-shrink:0;margin-top:1px;color:var(--a3)}
 .mflow-pal-rail{flex:1;overflow-y:auto;padding:8px 0;display:flex;flex-direction:column;align-items:center;gap:4px}
 .mflow-pal-tile.compact{width:32px;height:32px;padding:0;justify-content:center}
+.mflow-pal-rail-group{display:flex;flex-direction:column;align-items:center;gap:4px;width:100%}
+.mflow-pal-rail-divider{width:24px;height:1px;background:var(--border);margin:4px 0}
 .mflow-pal-nudge{width:32px;height:22px;background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--mid);cursor:pointer;font-size:11px;margin-bottom:4px}
 .mflow-pal-nudge:hover{color:var(--a3);border-color:var(--a2)}
 .mflow-pal-style-row{display:flex;align-items:center;gap:6px;font-size:9.5px;color:var(--mid);padding:2px}
@@ -510,6 +619,12 @@ path.transition.highlight {
 .mflow-icon-badge-dot{position:absolute;bottom:-3px;right:-4px;width:9px;height:9px;padding:0;border:1.5px solid var(--s3);border-radius:50%;background:none;cursor:pointer;overflow:hidden}
 .mflow-icon-badge-dot::-webkit-color-swatch-wrapper{padding:0}
 .mflow-icon-badge-dot::-webkit-color-swatch{border:none;border-radius:50%}
+/* State tile's cosmetic corner mark (top-left, opposite the color dot) —
+   same diamond color already used for the auto-detected badge elsewhere
+   (Layers list, canvas, right-click menu), purely a visual hint here, not
+   interactive — pointer-events:none so it can never intercept the tile's
+   own click/color-input targets sitting right next to it. */
+.mflow-icon-badge-corner{position:absolute;top:-3px;left:-4px;color:#7c8cff;background:var(--s3);border-radius:2px;pointer-events:none}
 
 /* ── BPMN documentation canvas (Process Docs section) — isolated from Studio ── */
 .bpmn-canvas-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0;background:var(--bg)}

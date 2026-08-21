@@ -51,7 +51,7 @@ export default function ContextTabStrip({ items, activeId, onSelect, onRename, o
                   onClick={e => e.stopPropagation()}
                 />
               : <span className="cc-wf-tab-name" style={{ fontSize: 9 }}>{item.label}</span>}
-            {items.length > 1 && onDelete && (
+            {onDelete && (
               <button className="cc-wf-tab-del" onClick={e => { e.stopPropagation(); onDelete(item.id); }}>✕</button>
             )}
           </div>

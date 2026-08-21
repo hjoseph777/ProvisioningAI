@@ -5,7 +5,35 @@ first to know exactly where things stand before doing anything else — don't
 re-derive it from scratch, don't assume, don't re-ask questions already
 answered below.
 
-Last updated: 2026-08-16 (session pausing, operator back in ~4 hours).
+Last updated: 2026-08-20, end of day (full-day rollup + next-session plan — see immediately below and item 8/9 further down).
+
+---
+
+## ⏭ NEXT SESSION STARTS HERE: build complex multi-diamond scenarios
+
+Everything verified in M-Files Flow so far — including both real bugs found
+today (items 8/9 below, and the flex-shrink bug, item 7) — used simple,
+minimal test cases: one diamond, one hub, a handful of states at a time.
+**Next session's task:** build a genuinely complex workflow directly on the
+left authoring canvas — several branching (diamond) states, a real mix of
+manual and automatic transitions, and at least one hub with 3+ inbound
+sources, all in the same diagram — and stress-test how the translator
+(`ProvisioningAI.Workflow/Translation/`) and the M-Files Diagram tab's
+rendering hold up under that real complexity, not just isolated cases
+exercised one at a time. Recorded in CLAUDE.md §2.4 as the standing next
+open item.
+
+**Also unresolved from tonight's end-of-day doc pass — four items reported
+for the daily rollup that did NOT check out against the actual code,
+flagged rather than written up as done (full detail: progress.md's
+"End-of-day summary and rollup" entry, CLAUDE.md §2.3's matching entry):**
+
+- Non-clickable diamond/plain palette legend — not found in `MFlowPalette.jsx`; still blocked on the diamond-treatment decision per the existing (unresolved) note below.
+- Validation tab "Clear action" — no such control exists in `LiveTranslationView.jsx`.
+- Bezier-curve connectors "matching real M-Files Admin" — only the pre-existing back-edge routing uses a curve; no M-Files Admin comparison found anywhere in code/comments.
+- Studio's nav entry hidden — `sections.js` still shows `id: 'studio', enabled: true`, visible in every screenshot taken today.
+
+Resolve whether these four landed elsewhere (different session/worktree/stash), are still pending, or were reported in error — don't just re-attempt building them from scratch without checking first.
 
 ---
 
@@ -1371,6 +1399,65 @@ Last real commit of the day: `85949b9` (drag-to-connect + marker fix, pushed to 
 **No open loose ends specific to M-Files Flow's own thread** — the one documentation imprecision flagged earlier (`MfilesProperties.md`'s "Studio's own model" wording in the diamond addendum) is still deliberately left as a flag, not a fix, pending the operator's own call on rewording; low priority, not blocking anything.
 
 **Concrete next step, if picked up tomorrow, not yet decided:** no specific task is queued for M-Files Flow — everything asked for today is closed out clean. Most likely next moves, not yet chosen: more canvas polish (zoom/pan around drag-to-connect, e.g. does the handle still work correctly mid-pan/mid-zoom — not tested today), or a different thread entirely. Ask rather than assume.
+
+### Grammar authoring reaffirmed against an external "skeleton-only" proposal; that document's changelog corrected (2026-08-19)
+
+Not a code task — a documentation/decision task, resuming under "word" per the collision note above. The operator brought in an external document, `mermaid-workflow-designer-prd.md`, for review. It proposes deferring all `if()`/`after()`/`role()`/`script()` logic out of Mermaid entirely to M-Files Admin, which would mean undoing item 3 above (automatic-transition grammar authoring, built and verified 2026-08-16).
+
+**Reviewed and confirmed: grammar authoring stays exactly as built, not adopted.** Full reasoning filed in `MfilesProperties.md`'s new 2026-08-19 addendum (right after the existing Decision 7 addendum); summarized in `progress.md`'s matching dated entry. In short: the diamond/hub badges and the rendered condition labels are all mechanical, read-only consequences of the same transition data the Translator emits — never a second, independently-authored layer — which is exactly why items 1-5 in this section's own list integrated with each other without conflict. Also corrected on the record: the external document's §11 changelog claims this grammar "was tried and explicitly reversed" here — it wasn't; it was built, live-verified, and committed (`src/utils/transitionGrammar.js`, `commit 2599827`). Checked against real repo history before accepting the document's own account, same as this project already does for other externally-sourced claims (e.g. the Qwen audit).
+
+No code changed. `decision_marker_side_tab.png` and `mfiles-ap-workflow-diagram.html` (also untracked, sitting alongside the PRD) were not part of this task — untouched, still unlogged.
+
+### Real M-Files Flow build session — transition delete, cascade, reconnect, persistence, palette shell (2026-08-19, same session, resuming under "word")
+
+Six real pieces of work, each investigated (checked BPMN's real behavior first where relevant) before building, each verified live with real Playwright interaction. Full detail and evidence in `progress.md`'s six matching 2026-08-19 entries — summarized here for a fast resume, not duplicated:
+
+1. **Transition deletion + cascade delete + floating multi-select toolbar.** Checked BPMN's real node-delete behavior first (`deleteElements`/`deleteNodes` cascade connected edges automatically, never block) — that's why `deleteState` gained `{cascade:true}` as an opt-in param rather than a default flip; Studio's table re-verified still blocking, unchanged.
+2. **Palette rebuilt on BPMN's shell** (search, categories, rail dividers) — hard exclusion re-confirmed both before and after: still zero placeable diamond/hub anywhere. Follow-up polish same session: Initial State moved to top, category order flipped so End State is the last tile and Status the first, State tile's icon changed to a rounded-rectangle + cosmetic (non-interactive) diamond corner mark.
+3. **Delete-workflow gap fixed** — tab strip delete button no longer hides below 2 workflows; deleting the last one now replaces it with a fresh blank workflow instead of no-op'ing.
+4. **Real localStorage persistence added** (zustand `persist`, already-bundled, no new dependency) — this is what the operator's "I cleared and it came back" actually was; nothing was ever saved anywhere before this. `resetAll()` still restores the original seed on demand.
+5. **Edge-endpoint reconnect (attach/detach) built.** Checked BPMN's real `reconnectEdge` first — `@xyflow/react`-only, no Mermaid equivalent, built fresh (small always-dim-visible handles at each edge's real start/end point, drag to a different state to reattach that end in place).
+6. **Electron→Translator bridge — investigated and measured, nothing built.** Confirmed feasible (no CLI entry point exists yet, but `PlanFormatter.ToJson` already does the hard part — smallest real addition is a ~15-line wrapper); real latency measured against the real §6.1/§6.2 sample: ~250-300ms per fresh process spawn vs ~0.04-0.1ms in-process: the translator itself is effectively free, all the cost is CLR startup. `dotnet run` measured 8-10x slower than the compiled artifact — a trap, avoid it regardless of which cadence gets chosen.
+
+**Held, not built, per its own explicit gating instruction:** the diamond-vs-plain palette legend task. `decision_marker_side_tab.png` turned out to be a design mockup only (two untried options), never implemented — building the legend now would mean redoing it once a real direction is picked.
+
+**⚠ Nothing from this session is committed.** `git status` shows `App.jsx`, `ContextTabStrip.jsx`, `MFlowCanvas.jsx`, `MFlowPalette.jsx`, `useWorkflowStore.js` all still uncommitted working-tree changes — unlike 2026-08-16's clean commit-and-push close. Don't assume this is shipped.
+
+**Two real decisions block next steps, both need the operator, neither guessed at:**
+
+1. Which diamond treatment is real — current shape-replacement, or mockup Option A (side-tab) / B (corner badge)? Blocks the legend.
+2. Recompute-on-open vs. persistent-warm-process for the M-Files View tab? Blocks scoping that tab.
+
+**Resume codeword "word" still the same three-way collision** (Conformity/M-Files investigation, BPMN Standard, M-Files Flow) — check context before assuming which thread, same standing rule.
+
+### M-Files Flow: Live Translating Split-Screen View, second connector handle, M-Files Diagram tab, Decision tile + dashed/hub verification (2026-08-20)
+
+Four tasks, same session, resumed under "word." Full detail and evidence in `progress.md`'s four matching 2026-08-20 entries — summarized here for a fast resume, not duplicated.
+
+1. **Live Translating Split-Screen View built**: real CLI wrapper (`ProvisioningAI.Workflow.Cli`, verified exact-match against §6.1/§6.2), Electron `workflow:translate` IPC bridge, permanent 55/45 split-screen (`react-resizable-panels` **pinned to 3.0.6** — 4.x renamed the whole API), `LiveTranslationView.jsx` with ~300ms debounce → ~250-270ms spawn-per-call translate, hover-sync (Step 5, approved stretch goal). **A real bug slipped past this session's own first verification and was only caught by the operator's live testing**: a freshly-drawn, not-yet-connected state was invisible to the translator (`MermaidParser.cs` only discovers states from edge endpoints or a literal `state X` line, never the `ID : label` form `useMermaid.js` emits) — fixed by also emitting a bare `state ID` line, entirely on the M-Files Flow side, `MermaidParser.cs` untouched. Accepted, not fixed: multi-word state names still display sanitized (e.g. "Under_Review") everywhere — operator's explicit "leave as-is" call, not a gap.
+2. **Second connector handle (left edge)** added, mirroring the existing right one via a shared `wireConnectHandle(side)` function. Verified: primary left-of-target scenario, right handle regression, both cancel-drags, diamond/hub, edge deletion, bulk-delete. **Found and flagged, not fixed**: a real pre-existing z-order bug (a handle can be covered by an edge's own reconnect-handle circle once that side already has a transition — SVG document-order issue, affects the original right handle equally, only bites on a handle's *second* use) — operator's call: track separately.
+3. **New "M-Files Diagram" tab**, set as the default (order: M-Files Diagram, Flattened, JSON, Validation) — an actual rendered SVG schematic, layout/render logic ported faithfully from `TranslationPlanRenderer.html`'s §6.2 reference renderer (BFS layering, shared-lane back-edges, label-collision nudging, gold "⚠ unparsed" skeleton treatment), colors remapped to this app's dark theme. No diamonds, ever — same rule the Flattened list already follows. Flattened/JSON/Validation untouched, just reordered. Screenshot-verified live.
+4. **Decision shortcut tile + two verifications**: new "Shortcuts" palette category, one "Decision" tile creating a 2-outgoing state + two outcomes in one click (still just `addState`/`addTransition`, still no directly-placeable diamond). Verified — not built — the right-side dashed-automatic-transition rendering from item 3 above with a *real* automatic transition (via a localStorage-injection test technique: writing directly into the app's own already-shipped `zustand persist` key, `provisioningai-workflow-store`, since M-Files Flow has no grammar-authoring UI of its own and Studio is out of bounds); confirmed left stays solid, right dashes correctly. Verified the hub badge at 4 real inbound sources (not just the "2" tested previously). **The item-2 z-order bug's scope broadened**: also confirmed via `.mflow-edge-hit` (an edge's own hit-stroke), not just `.mflow-edge-endpoint` — same root cause (both append directly to the top-level `<svg>`, always later in document order than a connect-handle nested in its node's `<g>`), wider blast radius than first described (any handle whose position falls under any edge's path/hit-area, not just "second use on an already-connected side") — still tracked separately, not fixed.
+
+**Studio boundary held across all four** (explicit per-task requirement each time, repeated verbatim in `progress.md`'s entries): zero Studio files opened/read/modified, zero Studio UI interacted with, `useWorkflowStore.js` untouched (pre-existing diff from 2026-08-16, only its exported actions called — including via the localStorage route in item 4, which writes the same data shape those actions already produce). **Nothing from today is committed.**
+
+**Operational note worth keeping**: this session's Electron+Playwright test instances initially shared Electron's default user-data profile with the operator's own separately-running `electron:dev` session before this was noticed — flagged directly, and every run after that point used an isolated `--user-data-dir`.
+
+**Two more quick pieces landed right after the batch above closed, same session (full detail: progress.md's matching 2026-08-20 entry):**
+5. **Process groups** — the "subgraph/grouping" feature from item 4, now built (confirmed with the operator first, via AskUserQuestion, before starting). A background region + process-name label behind a multi-selected set of states. Membership is a plain `processGroupId`/`processGroupName` field on each state, set via the *existing* `updateState` call — zero `useWorkflowStore.js` edits, zero new store concept. Assignment reuses the *existing* multi-select mechanism (new "Group"/"Ungroup" in the floating toolbar + right-click menu, not a new selection UI). Rendering inserts the background/label as the literal first two children of the `<svg>` (opposite DOM-order choice from the connect-handle/edge-hit elements, which need to paint on TOP — a group needs to paint BEHIND). Verified live: background+label render correctly, follow a dragged member, survive a partial ungroup, nodes stay clickable underneath.
+6. **Transition names** — a separate, purely cosmetic `label` field on a transition (confirmed with the operator this should NOT be the real `conditions`/grammar field, which stays Studio-only and untouched). Set via the edge's right-click menu's new "Edit" button, same `window.prompt` pattern as a state rename, through the existing `updateTransition` call. Verified live: names, displays, clears correctly; Transitions table's Condition column confirmed completely unaffected.
+
+**Testing note from both of the above:** `window.prompt()`'s native dialog isn't reliably interceptable via Playwright's `dialog` event in this Electron build (a listener never fired, no error either — the call just returned `null` synchronously) — worked around by stubbing `window.prompt` directly via `page.evaluate()` before triggering it. See skills.md.
+
+**Still open, untouched today:** which diamond treatment is real (blocks the legend); recompute-on-open vs. persistent-warm-process is moot now (resolved, item 1); the connect-handle z-order bug (item 2, broadened in item 4 — tracked separately per the operator).
+
+**7. Real bug found and fixed, same session, later the same day** — while re-verifying the Fit button via Playwright at the operator's request (after two non-bugs: a browser-tab "Translator bridge unavailable" message, and stale hot-reload state in a long-running Electron window, both resolved by using the real Electron build): a live node drag could send the SVG viewBox into exponential runaway growth (~420×120 → ~6,459×4,764 units over ~20 mousemove steps), shrinking every node to unreadable slivers. Root cause: `.mflow-diagram` is `display:flex`, its SVG child had no `flex-shrink:0`, so the flex container silently clamped the SVG's real rendered width below what the drag code's `style.width` requested — `getScreenCTM()`'s scale came out too small, `toUserDelta()` divided by it, deltas inflated, viewBox grew further next frame, feedback loop. Confirmed via temporary diagnostic logging in `growViewBoxToFit` (`MFlowCanvas.jsx`), removed after root-causing. **Fix: one CSS line**, `flex-shrink:0` on `.mflow-diagram svg` (`App.jsx`). Verified fixed with real before/after Playwright screenshots (moderate live drag, no reload — reload alone masks the bug via auto-fit-on-mount) plus a full regression pass (both connector handles, decision tile, dashed-automatic, hub badge, process groups, transition labels, edge deletion/bulk delete, all 4 tabs) — zero console errors, zero side effects. Distinct from, unrelated to, the two non-bugs earlier that day. Docs updated: progress.md, skills.md, CLAUDE.md §2.3, this file. **Still uncommitted**, same as items 1-6.
+
+**8. Second real bug found, follow-up session** — re-investigating the earlier "dashed-automatic-transition rendering" verification (per an operator request to check the real code path, not trust the prior claim) found the simple case still worked, but surfaced a genuine second bug in `useMermaid.js`'s Gateway/hub declaration: it never emitted the bare `state gw_i` line item 4's fix added for ordinary states, so a hub silently vanished from the translated plan's State list once discovered — and every edge touching it (both into and out of) was dropped from the M-Files Diagram tab entirely, not just rendered wrong. A second issue: the automatic condition was attached to the hub's shared outgoing edge instead of each source's own incoming leg. Both fixed; verified live (hub-feeding automatic transition now appears and renders dashed with its label) plus a full regression pass, zero console errors. Skill recorded: after fixing "declaration missing for node type A," check every other code path declaring a different node type — the same gap doesn't announce itself until something exercises it.
+
+**9. Deliberate design change, same follow-up session** — operator explicitly requested (confirmed via AskUserQuestion first) reversing the M-Files Diagram tab's solid/dashed rule: every transition now renders dashed on that tab regardless of `TriggerMode`, not just automatic ones. `LiveTranslationView.jsx`'s `isAutomatic` conditional removed, `strokeDasharray` hardcoded to `'7,5'`. Left/authoring canvas unaffected (already uniformly solid). JSON/Flattened/Validation tabs unaffected — `TriggerMode` values still compute and display correctly, only the M-Files Diagram tab's line-style rendering stopped reading that field. Verified via screenshot + regression pass, zero console errors. **This supersedes item 4's "confirmed left stays solid, right dashes correctly" framing for the M-Files Diagram tab specifically** — right now dashes unconditionally, by explicit operator choice.
+
+Both items 8 and 9 still uncommitted, same as everything above. Docs updated: CLAUDE.md §2.3, skills.md, this file (progress.md not touched this round — no explicit request, and both changes are small enough to be adequately captured here + CLAUDE.md).
 
 ---
 

@@ -46,6 +46,20 @@ function scriptPath (name) {
     : path.join(__dirname, '../scripts', name);
 }
 
+// Same isPackaged branching shape as scriptPath() above, applied to the
+// M-Files Flow translator CLI (ProvisioningAI.Workflow.Cli — a thin wrapper
+// around ProvisioningAI.Workflow's TranslationPipeline, built with
+// `dotnet build -c Release` from provisioningai-backend/ProvisioningAI.Workflow.Cli).
+// NOTE: the packaged-app path isn't populated yet — electron-builder's
+// `files` list in package.json only ships scripts/**/*, not the .NET build
+// output — same pre-existing gap the rest of the backend (:5000 API,
+// MFilesConnectors) already has. Dev-mode spawn is what this task verifies.
+function translatorCliPath () {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'cli', 'ProvisioningAI.Workflow.Cli.exe')
+    : path.join(__dirname, '../provisioningai-backend/ProvisioningAI.Workflow.Cli/bin/Release/net8.0/ProvisioningAI.Workflow.Cli.exe');
+}
+
 // ── IPC: Connection test ──────────────────────────────────────────
 // Uses MFilesServerApplication (server-side COM) so it works even
 // while M-Files Desktop has an active client session on this vault.
@@ -238,6 +252,48 @@ ipcMain.handle('file:save', async (_event, { content, defaultName, filters }) =>
   if (canceled || !filePath) return { ok: false, cancelled: true };
   await writeFile(filePath, content, 'utf8');
   return { ok: true, filePath };
+});
+
+// ── IPC: M-Files Flow live translation ─────────────────────────────
+// Spawns the translator CLI fresh per call (confirmed cadence — see
+// recover.md's 2026-08-19 "Electron → Translator bridge" measurement: the
+// translator itself is effectively free, ~250-300ms is CLR process-start
+// cost, and a persistent warm process was deliberately rejected in favor of
+// this simpler spawn-per-call approach). Mermaid text goes in over stdin
+// (same "no temp file, no arg-escaping" reasoning as any other short stdin
+// payload); the CLI's stdout is the plan JSON verbatim (PlanFormatter.ToJson).
+ipcMain.handle('workflow:translate', async (_event, { mermaid }) => {
+  const exePath = translatorCliPath();
+  return new Promise((resolve) => {
+    let proc;
+    try {
+      proc = spawn(exePath, []);
+    } catch (e) {
+      resolve({ ok: false, error: `Failed to launch translator CLI: ${e.message}` });
+      return;
+    }
+
+    let out = '';
+    let err = '';
+    proc.stdout.on('data', d => { out += d.toString(); });
+    proc.stderr.on('data', d => { err += d.toString(); });
+    proc.on('error', e => resolve({ ok: false, error: `Failed to launch translator CLI: ${e.message}` }));
+    proc.on('close', code => {
+      if (code !== 0) {
+        resolve({ ok: false, error: err.trim() || `Translator CLI exited with code ${code}` });
+        return;
+      }
+      try {
+        const plan = JSON.parse(out);
+        resolve({ ok: true, plan });
+      } catch (e) {
+        resolve({ ok: false, error: `Translator CLI produced malformed JSON: ${e.message}` });
+      }
+    });
+
+    proc.stdin.write(mermaid || '', 'utf8');
+    proc.stdin.end();
+  });
 });
 
 // ── Helper: HTTPS POST from Node (no CORS) ────────────────────────

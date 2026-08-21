@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 const makeId = () => Math.random().toString(36).slice(2, 9);
 
@@ -71,7 +72,18 @@ const shellDefaults = {
 
 
 // ── Store ─────────────────────────────────────────────────────
-export const useWorkflowStore = create((set, get) => ({
+// Persisted to localStorage — nothing in this app saved workflow data
+// anywhere before this, so a page reload (or the app remounting for any
+// reason) always snapped back to the hardcoded Document Approval seed, even
+// after a real edit or an explicit Clear/delete. Only the fresh()-sourced
+// fields are persisted (partialize below); history (undo/redo) and
+// transient UI state (hover, command palette) deliberately are not — an
+// undo stack surviving a reload would be confusing, not useful, and the
+// shell fields (mfServer etc.) already live outside fresh() for the same
+// "not workflow data" reason. resetAll() still works exactly as before:
+// set(fresh()) overwrites the persisted copy too, since persist wraps every
+// set() call, not just the initial one.
+export const useWorkflowStore = create(persist((set, get) => ({
   ...fresh(),
   ...shellDefaults,
   setHoveredState: (name) => set({ hoveredState: name }),
@@ -139,9 +151,18 @@ export const useWorkflowStore = create((set, get) => ({
     const wf = { id: makeId(), name: 'New Workflow', states: [], transitions: [], groups: [], theme: 'neutral', comments: [] };
     set(s => ({ workflows: [...s.workflows, wf], activeId: wf.id }));
   },
+  // Deleting the LAST workflow used to no-op (silently refuse) — the UI's
+  // own tab strip already hid the delete button below 2 workflows for the
+  // same reason, but that left no way to actually get rid of a lone
+  // workflow, ever. Now it replaces it with a genuinely fresh, empty one
+  // (same shape addWorkflow() creates) instead of leaving zero workflows,
+  // which nothing in this app (canvas, tab strip) is built to render.
   deleteWorkflow: (id) => set(s => {
     const next = s.workflows.filter(w => w.id !== id);
-    if (!next.length) return s;
+    if (!next.length) {
+      const wf = { id: makeId(), name: 'New Workflow', states: [], transitions: [], groups: [], theme: 'neutral', comments: [] };
+      return { workflows: [wf], activeId: wf.id };
+    }
     const activeId = s.activeId === id ? next[0].id : s.activeId;
     return { workflows: next, activeId };
   }),
@@ -239,17 +260,26 @@ export const useWorkflowStore = create((set, get) => ({
     }));
   },
 
-  // Returns { ok, error } — blocked if state is in any transition
-  deleteState: (wfId, stateId) => {
+  // Returns { ok, error } — blocked if state is in any transition, unless
+  // { cascade: true } is passed, in which case connected transitions are
+  // removed in the same update instead (matching BPMN Standard's real,
+  // confirmed behavior: @xyflow/react's own deleteElements/deleteNodes both
+  // cascade connected edges automatically, never block). Defaults to false
+  // so Studio's own table — which relies on the block-and-alert behavior for
+  // its "in use, remove its transitions first" message — is byte-for-byte
+  // unchanged; only M-Files Flow's canvas opts in.
+  deleteState: (wfId, stateId, { cascade = false } = {}) => {
     const wf = get().workflows.find(w => w.id === wfId);
     if (!wf) return { ok: false, error: 'Workflow not found' };
     const state = wf.states.find(s => s.id === stateId);
     if (!state) return { ok: false, error: 'State not found' };
     const inUse = wf.transitions.some(t => t.from === state.name || t.to === state.name);
-    if (inUse) return { ok: false, error: `"${state.name}" is in use — remove its transitions first.` };
+    if (inUse && !cascade) return { ok: false, error: `"${state.name}" is in use — remove its transitions first.` };
     set(s => ({
       workflows: s.workflows.map(w => w.id !== wfId ? w : {
-        ...w, states: w.states.filter(st => st.id !== stateId)
+        ...w,
+        states: w.states.filter(st => st.id !== stateId),
+        transitions: cascade ? w.transitions.filter(t => t.from !== state.name && t.to !== state.name) : w.transitions,
       })
     }));
     return { ok: true };
@@ -437,4 +467,7 @@ export const useWorkflowStore = create((set, get) => ({
 
   // ── Reset everything ───────────────────────────────────────
   resetAll: () => set(fresh()),
+}), {
+  name: 'provisioningai-workflow-store',
+  partialize: s => ({ workflows: s.workflows, activeId: s.activeId, users: s.users, properties: s.properties, rules: s.rules }),
 }));

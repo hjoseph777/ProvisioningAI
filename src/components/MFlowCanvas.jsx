@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Plus, Minus, Maximize2, Lock, Unlock, List, X, Diamond, GitMerge } from 'lucide-react';
+import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 import { useMermaid } from '../hooks/useMermaid';
 import { gatewayStyleFor, DEFAULT_CANVAS_THEME } from '../utils/canvasThemes';
 import { SHAPE_STROKE_WIDTH, SHAPE_FILL_OPACITY, SHAPE_DROP_SHADOW } from '../utils/shapeDesignTokens';
 import MFlowPalette from './mflow/MFlowPalette';
+import LiveTranslationView from './mflow/LiveTranslationView';
 
 // ── M-Files Flow ─────────────────────────────────────────────────
 // Clean-slate rebuild, NOT an edit to CommandCenter.jsx (Studio). Shares
@@ -142,6 +144,8 @@ export default function MFlowCanvas() {
   const activeId = useWorkflowStore(s => s.activeId);
   const addState = useWorkflowStore(s => s.addState);
   const addTransition = useWorkflowStore(s => s.addTransition);
+  const updateTransition = useWorkflowStore(s => s.updateTransition);
+  const deleteTransition = useWorkflowStore(s => s.deleteTransition);
   const updateState = useWorkflowStore(s => s.updateState);
   const updateStatePosition = useWorkflowStore(s => s.updateStatePosition);
   const renameState = useWorkflowStore(s => s.renameState);
@@ -202,8 +206,16 @@ export default function MFlowCanvas() {
   const [selected, setSelected] = useState(new Set());
   const selectedRef = useRef(selected); // read inside DOM event handlers (right-click), same reasoning as lockedRef
   selectedRef.current = selected;
-  const [contextMenu, setContextMenu] = useState(null); // {x,y,type:'node'|'canvas',stateId,name}
+  const [contextMenu, setContextMenu] = useState(null); // {x,y,type:'node'|'edge'|'comment'|'canvas',stateId,name,transId,fromName,toName,commentId}
   const [palettePinned, setPalettePinned] = useState(false);
+  // Floating multi-select toolbar position, relative to .mflow-canvas-area —
+  // built fresh for this canvas (real getBoundingClientRect() over the
+  // selected nodes' own <g> elements), NOT a port of BPMN's NodeToolbar/
+  // getNodesBounds, which are @xyflow/react-specific and have no equivalent
+  // on a Mermaid-rendered SVG with its own hand-rolled pan/zoom transform —
+  // same "pattern is reusable, mechanism isn't" conclusion the earlier
+  // investigation reached for the magic-connector before drag-to-connect.
+  const [toolbarPos, setToolbarPos] = useState(null);
   // Live states/transitions table — the canvas is the only view of this
   // data otherwise (no JSON/Stats view like Studio has); collapsed by
   // default to keep the canvas-first feel, expand-on-demand via the
@@ -224,7 +236,93 @@ export default function MFlowCanvas() {
   const zoomRef = useRef(1); // read inside the drag handler, for growViewBoxToFit's CSS-width math
   zoomRef.current = zoom;
 
+  // ── Live translation (split-screen right panel) ──────────────────────
+  // Confirmed cadence (recover.md, 2026-08-19 investigation): permanent
+  // split-screen, continuous debounce (~300ms after edits stop) triggers a
+  // fresh spawn-per-call CLI translation (~250ms) — no persistent warm
+  // process. `translationVersion` bumps once per completed call (success OR
+  // error) so LiveTranslationView can key its fade-in off a real "new
+  // output landed" event rather than every keystroke.
+  const [translationPlan, setTranslationPlan] = useState(null);
+  const [translationError, setTranslationError] = useState(null);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [translationVersion, setTranslationVersion] = useState(0);
+  const translateSeqRef = useRef(0); // guards against an in-flight call's response arriving after a newer edit
+  // Step 5, explicitly optional per the task brief — hovering a state on the
+  // canvas highlights its block in LiveTranslationView's Flattened view.
+  // One-directional only (left canvas -> right panel), as scoped.
+  const [hoveredStateKey, setHoveredStateKey] = useState(null);
+
+  useEffect(() => {
+    if (!mermaidStr) {
+      translateSeqRef.current++; // invalidate any in-flight call — nothing to show it against anymore
+      setTranslationPlan(null);
+      setTranslationError(null);
+      setIsTranslating(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      const seq = ++translateSeqRef.current;
+      if (!window.workflowTranslator) {
+        setTranslationError('Translator bridge unavailable — run inside Electron, not a plain browser dev session.');
+        setTranslationPlan(null);
+        setTranslationVersion(v => v + 1);
+        return;
+      }
+      setIsTranslating(true);
+      window.workflowTranslator.translate({ mermaid: mermaidStr }).then(res => {
+        if (seq !== translateSeqRef.current) return; // superseded by a newer edit — drop this stale response
+        setIsTranslating(false);
+        if (res?.ok) {
+          setTranslationPlan(res.plan);
+          setTranslationError(null);
+        } else {
+          setTranslationError(res?.error || 'Translation failed.');
+        }
+        setTranslationVersion(v => v + 1);
+      });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [mermaidStr]);
+
+  // Recomputes the floating multi-select toolbar's position from real,
+  // current DOM state — a bounding box (screen coords, via
+  // getBoundingClientRect(), which already accounts for pan/zoom since both
+  // are applied as transforms on the rendered <svg>) over every selected
+  // node's own <g>, converted to be relative to .mflow-canvas-area (the
+  // toolbar's own positioned ancestor, same as the comment boxes). Hides
+  // itself below 2 selected, matching BPMN's SelectedNodesToolbar visibility
+  // gate exactly. Reads selectedRef (not `selected` directly) so this same
+  // function stays correct when called from inside the persistent layout
+  // effect's drag/pan handlers, which close over whichever render created
+  // them — same reasoning every other *Ref in this file already follows.
+  const updateToolbarPos = () => {
+    const sel = selectedRef.current;
+    const svgEl = diagRef.current?.querySelector('svg');
+    const areaEl = diagRef.current?.closest('.mflow-canvas-area');
+    if (sel.size < 2 || !svgEl || !areaEl) { setToolbarPos(null); return; }
+    const areaRect = areaEl.getBoundingClientRect();
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, found = false;
+    svgEl.querySelectorAll('.node').forEach(n => {
+      const lbl = n.querySelector('.nodeLabel,text,span')?.textContent?.trim() || '';
+      if (!lbl || !sel.has(lbl)) return;
+      found = true;
+      const r = n.getBoundingClientRect();
+      minX = Math.min(minX, r.left); minY = Math.min(minY, r.top);
+      maxX = Math.max(maxX, r.right); maxY = Math.max(maxY, r.bottom);
+    });
+    if (!found) { setToolbarPos(null); return; }
+    setToolbarPos({ left: (minX + maxX) / 2 - areaRect.left, top: minY - areaRect.top - 14 });
+  };
+  const updateToolbarPosRef = useRef(updateToolbarPos);
+  updateToolbarPosRef.current = updateToolbarPos;
+
   useEffect(() => { setSelected(new Set()); setContextMenu(null); }, [activeId]);
+
+  // Selection change and every fresh diagram render both move/hide the
+  // toolbar — a fresh render swaps in a brand-new <svg> with no memory of
+  // the previous one's node positions.
+  useEffect(() => { updateToolbarPos(); }, [selected, mermaidStr]);
 
   // Ctrl/Cmd+A — select every named state. Skipped while focus is in a real
   // text field (comment textarea, filter inputs elsewhere in the app) so it
@@ -268,6 +366,7 @@ export default function MFlowCanvas() {
     const svgEl = diagRef.current?.querySelector('svg'); if (!svgEl) return;
     const baseWidth = parseFloat(svgEl.dataset.baseWidth); if (!baseWidth) return;
     svgEl.style.width = `${baseWidth * zoom}px`;
+    updateToolbarPosRef.current(); // zoom rescales node screen positions
   }, [zoom, mermaidStr]);
 
   // Click-drag empty canvas to pan — free transform on the SVG itself, NOT
@@ -300,6 +399,7 @@ export default function MFlowCanvas() {
         if (!panning) return;
         panRef.current = { x: startPan.x + dx, y: startPan.y + dy };
         svgEl.style.transform = `translate3d(${panRef.current.x}px, ${panRef.current.y}px, 0)`;
+        updateToolbarPosRef.current(); // keep the toolbar glued to the selection while panning
       };
       const onUp = () => {
         document.removeEventListener('mousemove', onMove);
@@ -350,6 +450,10 @@ export default function MFlowCanvas() {
   }, [selected, mermaidStr]);
 
   useEffect(() => {
+    // A fresh render swaps in a brand-new svg — the old node's onmouseleave
+    // isn't guaranteed to fire on removal, so drop any stale hover rather
+    // than risk it sticking to a state that no longer has a live listener.
+    setHoveredStateKey(null);
     if (!mermaidStr) {
       if (diagRef.current) diagRef.current.innerHTML = '';
       return;
@@ -427,6 +531,7 @@ export default function MFlowCanvas() {
         // ── Resolve every edge's real fromId/toId geometrically (Mermaid's
         // path order isn't guaranteed to match the source text order) ──
         const nodeCenters = {};
+        const idToName = {}; // reverse lookup for edge hit-testing below — real states only, never the [*] marker
         let markerIndex = 0;
         svgEl.querySelectorAll('.node').forEach(n => {
           const lbl = n.querySelector('.nodeLabel,text,span')?.textContent?.trim() || '';
@@ -445,6 +550,7 @@ export default function MFlowCanvas() {
           // the same mechanism real states already use correctly, not a
           // new one.
           const id = lbl ? sanitizeStateId(lbl) : `__mflow_marker_${markerIndex++}__`;
+          if (lbl) idToName[id] = lbl;
           const rectOrPoly = n.querySelector('rect, polygon');
           // The marker's own shape is a bare <circle>, not a rect/polygon —
           // falling through to the 80x30 default here (as this used to,
@@ -466,6 +572,12 @@ export default function MFlowCanvas() {
           return best;
         };
         const edgeList = [];
+        // Each rendered path is matched to its real wf.transitions record by
+        // resolved from/to NAME (not id — ids include the synthetic marker
+        // id, which never has a name) — tracked with claimedTransIds so two
+        // transitions sharing the same from/to pair each still get their own
+        // distinct match rather than both resolving to the first one found.
+        const claimedTransIds = new Set();
         svgEl.querySelectorAll('path.transition').forEach(p => {
           const len = p.getTotalLength(); if (len < 1) return;
           const s0 = p.getPointAtLength(len * 0.05), s1 = p.getPointAtLength(len * 0.95);
@@ -474,7 +586,48 @@ export default function MFlowCanvas() {
           const a = toScreen(s0), b = toScreen(s1);
           const fromId = nearest(a.x, a.y), toId = nearest(b.x, b.y);
           if (!fromId || !toId || fromId === toId) return;
-          edgeList.push({ path: p, fromId, toId });
+          const fromName = idToName[fromId], toName = idToName[toId];
+          const trans = (fromName && toName)
+            ? wf.transitions.find(t => t.from === fromName && t.to === toName && !claimedTransIds.has(t.id))
+            : undefined;
+          if (trans) claimedTransIds.add(trans.id);
+
+          // Right-click hit-testing — a real, invisible, wider-stroke sibling
+          // path tracking the same `d`, matching the established precedent
+          // for edge hit areas in this codebase (BPMN Standard's own
+          // FlowEdge.jsx widens its interaction stroke the same way, since a
+          // thin visible line is a poor mouse/Playwright target). Only real
+          // transitions get one — the [*] entry marker's own edge has no
+          // `trans` to delete, so no hit path, no right-click, nothing to
+          // click on there.
+          let hitPath = null, startHandle = null, endHandle = null;
+          if (trans) {
+            hitPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            hitPath.setAttribute('class', 'mflow-edge-hit');
+            hitPath.setAttribute('fill', 'none');
+            svgEl.appendChild(hitPath);
+            hitPath.oncontextmenu = e => {
+              e.preventDefault(); e.stopPropagation();
+              setContextMenu({ x: e.clientX, y: e.clientY, type: 'edge', transId: trans.id, fromName, toName });
+            };
+
+            // Reconnect handles — real, dedicated circles at the edge's own
+            // start/end points (not the node handle drag-to-connect already
+            // has, which lives on the NODE and only ever creates a brand
+            // new transition). Grabbing one of these and dropping on a
+            // different state reattaches that end of THIS existing
+            // transition instead. Positioned in redrawEdge below, once real
+            // start/end points are known.
+            startHandle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            startHandle.setAttribute('class', 'mflow-edge-endpoint');
+            startHandle.setAttribute('r', '4');
+            svgEl.appendChild(startHandle);
+            endHandle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            endHandle.setAttribute('class', 'mflow-edge-endpoint');
+            endHandle.setAttribute('r', '4');
+            svgEl.appendChild(endHandle);
+          }
+          edgeList.push({ path: p, hitPath, startHandle, endHandle, fromId, toId, transId: trans?.id, fromName, toName });
         });
 
         // ── Apply any stored manual positions, then redraw every edge to match ──
@@ -493,11 +646,154 @@ export default function MFlowCanvas() {
             growViewBoxToFit(svgEl, c.cx, c.cy, zoomRef.current);
           }
         });
-        const redrawEdge = ({ path, fromId, toId }) => {
+
+        // ── Process-group backgrounds — a purely visual region behind every
+        // state that currently shares a processGroupId (set via the
+        // right-click/toolbar "Group" action, see handleGroupSelected — no
+        // new store concept, just a field on each member state's own
+        // record). Bounding box is recomputed live from real, current node
+        // positions every render, same reasoning the multi-select toolbar's
+        // own bounding box already uses — a group never goes stale relative
+        // to wherever its members currently sit, including after a drag.
+        // Inserted as the very FIRST children of the svg (via insertBefore,
+        // not appendChild) so they paint behind every node and edge,
+        // deliberately the opposite choice from this file's connect-handle/
+        // edge-hit elements, which need to paint ON TOP.
+        const groupPad = 32, groupLabelH = 18;
+        const byGroup = new Map();
+        wf.states.forEach(st => {
+          if (!st.processGroupId) return;
+          const id = sanitizeStateId(st.name);
+          const c = nodeCenters[id]; if (!c) return;
+          if (!byGroup.has(st.processGroupId)) byGroup.set(st.processGroupId, { name: st.processGroupName || '', members: [] });
+          byGroup.get(st.processGroupId).members.push(c);
+        });
+        [...byGroup.values()].reverse().forEach(({ name, members }) => {
+          if (!members.length) return;
+          const minX = Math.min(...members.map(c => c.cx - c.hw)) - groupPad;
+          const maxX = Math.max(...members.map(c => c.cx + c.hw)) + groupPad;
+          const minY = Math.min(...members.map(c => c.cy - c.hh)) - groupPad - groupLabelH;
+          const maxY = Math.max(...members.map(c => c.cy + c.hh)) + groupPad;
+          growViewBoxToFit(svgEl, minX, minY, zoomRef.current, 10);
+          growViewBoxToFit(svgEl, maxX, maxY, zoomRef.current, 10);
+          const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+          rect.setAttribute('x', String(minX)); rect.setAttribute('y', String(minY));
+          rect.setAttribute('width', String(maxX - minX)); rect.setAttribute('height', String(maxY - minY));
+          rect.setAttribute('rx', '10');
+          rect.setAttribute('class', 'mflow-group-bg');
+          svgEl.insertBefore(rect, svgEl.firstChild);
+          if (name) {
+            const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            label.setAttribute('x', String(minX + 10)); label.setAttribute('y', String(minY + groupLabelH));
+            label.setAttribute('class', 'mflow-group-label');
+            label.textContent = name;
+            svgEl.insertBefore(label, svgEl.firstChild.nextSibling);
+          }
+        });
+
+        const redrawEdge = edge => {
+          const { path, hitPath, startHandle, endHandle, fromId, toId } = edge;
           const f = nodeCenters[fromId], t = nodeCenters[toId]; if (!f || !t) return;
-          path.setAttribute('d', orthogonalPath(f, t));
+          const d = orthogonalPath(f, t);
+          path.setAttribute('d', d);
+          if (hitPath) hitPath.setAttribute('d', d);
+          // Real endpoints, read back from the path itself rather than
+          // re-deriving from orthogonalPath's own internals — robust to
+          // that function's routing changing later. Stashed on the edge
+          // object so the reconnect drag below can anchor its live dashed
+          // line to "wherever the OTHER end currently is," not a stale value.
+          if (startHandle && endHandle) {
+            const len = path.getTotalLength();
+            const sp = path.getPointAtLength(0), ep = path.getPointAtLength(len);
+            startHandle.setAttribute('cx', String(sp.x)); startHandle.setAttribute('cy', String(sp.y));
+            endHandle.setAttribute('cx', String(ep.x)); endHandle.setAttribute('cy', String(ep.y));
+            edge.startPt = sp; edge.endPt = ep;
+          }
         };
         edgeList.forEach(redrawEdge);
+
+        // ── Edge reconnect — grab either endpoint of a real transition and
+        // drop it on a different state to reattach that end, without
+        // deleting and recreating the transition. Distinct from the node
+        // handle's drag-to-connect below: that one only ever makes a NEW
+        // transition; this one edits an existing one's from/to in place.
+        // Built fresh (Mermaid has nothing like React Flow's native
+        // reconnectEdge/edgesReconnectable) — checked BPMN Standard's real
+        // reconnect first (useBpmnStore.js's reconnectEdge, wired to
+        // @xyflow/react's own reconnectEdge() + onReconnect/
+        // edgesReconnectable), confirmed it's a React-Flow-only mechanism
+        // with no Mermaid equivalent to reuse, same conclusion as
+        // drag-to-connect's own check against the magic connector. ──
+        const wireEndpointDrag = (edge, endKey) => {
+          const handle = edge[endKey === 'from' ? 'startHandle' : 'endHandle'];
+          if (!handle) return;
+          handle.onmousedown = e => {
+            e.stopPropagation(); e.preventDefault();
+            if (lockedRef.current) return;
+            const fixedPt = endKey === 'from' ? edge.endPt : edge.startPt; // the OTHER end — stays put
+            const otherName = endKey === 'from' ? edge.toName : edge.fromName;
+
+            const dragLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            dragLine.setAttribute('class', 'mflow-connect-dragline');
+            dragLine.setAttribute('x1', String(fixedPt.x)); dragLine.setAttribute('y1', String(fixedPt.y));
+            dragLine.setAttribute('x2', String(fixedPt.x)); dragLine.setAttribute('y2', String(fixedPt.y));
+            svgEl.appendChild(dragLine);
+
+            let targetId = null;
+            const clearTargetHighlight = id => {
+              const t = layoutRef.current.nodeCenters[id];
+              const shape = t?.el.querySelector('rect, polygon');
+              if (shape) { shape.style.stroke = ''; shape.style.strokeWidth = ''; }
+            };
+            const setTargetHighlight = id => {
+              const t = layoutRef.current.nodeCenters[id];
+              const shape = t?.el.querySelector('rect, polygon');
+              if (shape) { shape.style.stroke = 'var(--green)'; shape.style.strokeWidth = '3'; }
+            };
+
+            const onMove = ev => {
+              const ctm = svgEl.getScreenCTM();
+              const pt = svgEl.createSVGPoint();
+              pt.x = ev.clientX; pt.y = ev.clientY;
+              const svgPt = ctm ? pt.matrixTransform(ctm.inverse()) : pt;
+              dragLine.setAttribute('x2', String(svgPt.x));
+              dragLine.setAttribute('y2', String(svgPt.y));
+
+              const elUnder = document.elementFromPoint(ev.clientX, ev.clientY);
+              const targetEl = elUnder?.closest('.node');
+              const targetLbl = targetEl?.querySelector('.nodeLabel,text,span')?.textContent?.trim() || '';
+              // Can't reattach an end onto the state already at the OTHER
+              // end — that would make a self-loop, same rule drag-to-connect
+              // already enforces for brand-new transitions.
+              const newTargetId = (targetLbl && targetLbl !== otherName) ? sanitizeStateId(targetLbl) : null;
+              if (newTargetId !== targetId) {
+                if (targetId) clearTargetHighlight(targetId);
+                targetId = newTargetId;
+                if (targetId) setTargetHighlight(targetId);
+              }
+            };
+            const onUp = () => {
+              document.removeEventListener('mousemove', onMove);
+              document.removeEventListener('mouseup', onUp);
+              dragLine.remove();
+              if (targetId) clearTargetHighlight(targetId);
+              if (targetId) {
+                const targetSt = wf.states.find(s => sanitizeStateId(s.name) === targetId);
+                if (targetSt && targetSt.name !== (endKey === 'from' ? edge.fromName : edge.toName)) {
+                  takeSnapshot();
+                  updateTransition(activeId, edge.transId, { [endKey]: targetSt.name });
+                }
+              }
+            };
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+          };
+        };
+        edgeList.forEach(edge => {
+          if (!edge.transId) return; // the [*] marker's own edge has nothing to reconnect
+          wireEndpointDrag(edge, 'from');
+          wireEndpointDrag(edge, 'to');
+        });
 
         layoutRef.current = { nodeCenters, edgeList, redrawEdge };
 
@@ -506,6 +802,18 @@ export default function MFlowCanvas() {
           n.style.cursor = 'grab';
           const lbl = n.querySelector('.nodeLabel,text,span')?.textContent?.trim() || '';
           const stId = sanitizeStateId(lbl);
+
+          // Hover-sync (Step 5, split-screen view) — keyed on the SANITIZED id,
+          // not the raw label. The translator has no alias/label grammar
+          // (MfilesProperties.md §3.5 — deliberate, not a gap this task fixes),
+          // so a multi-word state's PlannedState.Name always comes back as this
+          // same sanitized id, never the spaced label. Matching on `stId` here
+          // is what makes hover-sync actually land for those states too, not
+          // just single-word ones where sanitized happens to equal raw.
+          if (lbl) {
+            n.onmouseenter = () => setHoveredStateKey(stId);
+            n.onmouseleave = () => setHoveredStateKey(prev => (prev === stId ? null : prev));
+          }
 
           n.onclick = e => {
             e.stopPropagation();
@@ -532,28 +840,40 @@ export default function MFlowCanvas() {
             setContextMenu({ x: e.clientX, y: e.clientY, type: 'node', name: lbl });
           };
 
-          // ── Drag-to-connect handle — the one interaction this canvas never
+          // ── Drag-to-connect handles — the one interaction this canvas never
           // had: Mermaid gives no native connection-handle/drag the way
           // React Flow's <Handle> does for BPMN Standard (checked its
           // "magic connector" CSS for the visual precedent — a small dot at
           // the node edge, hidden until hover — but the underlying mechanism
           // there is React Flow's own onConnect/handles, nothing to import
           // here; this is genuinely new interaction-layer code). A small
-          // circle at the node's right edge, visible on hover via CSS
+          // circle at the node's edge, visible on hover via CSS
           // (`.node:hover .mflow-connect-handle`), reusing this canvas's own
           // accent color (`--a3`, the same blue the selection highlight
           // already uses) rather than inventing a new one. Positioned as a
           // CHILD of the node's own <g> in local coordinates, so it moves
           // for free whenever the node is repositioned — no separate
-          // tracking needed. ──
-          if (lbl) {
+          // tracking needed.
+          //
+          // Two handles, one per side (right — the original — and left,
+          // added so a state positioned to the LEFT of its target has a
+          // handle on the near side too, instead of the drag line always
+          // starting from the node's far/right edge regardless of layout).
+          // Both are wired through this one function, parameterized only on
+          // which edge (`+hw` right, `-hw` left) — same mechanism byte-for-
+          // byte otherwise, kept as one function rather than two 80-line
+          // copies so the drag/hit-test/cleanup logic can't drift out of
+          // sync between the two handles over time.
+          const wireConnectHandle = side => {
+            if (!lbl) return;
             const info = layoutRef.current.nodeCenters[stId];
             const hw = info?.hw ?? 40;
+            const sign = side === 'left' ? -1 : 1;
             const handle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-            handle.setAttribute('cx', String(hw));
+            handle.setAttribute('cx', String(sign * hw));
             handle.setAttribute('cy', '0');
             handle.setAttribute('r', '5');
-            handle.setAttribute('class', 'mflow-connect-handle');
+            handle.setAttribute('class', `mflow-connect-handle mflow-connect-handle-${side}`);
             n.appendChild(handle);
 
             // A click that never became a drag (mousedown+mouseup on the
@@ -572,9 +892,9 @@ export default function MFlowCanvas() {
 
               const dragLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
               dragLine.setAttribute('class', 'mflow-connect-dragline');
-              dragLine.setAttribute('x1', String(startInfo.cx + startInfo.hw));
+              dragLine.setAttribute('x1', String(startInfo.cx + sign * startInfo.hw));
               dragLine.setAttribute('y1', String(startInfo.cy));
-              dragLine.setAttribute('x2', String(startInfo.cx + startInfo.hw));
+              dragLine.setAttribute('x2', String(startInfo.cx + sign * startInfo.hw));
               dragLine.setAttribute('y2', String(startInfo.cy));
               svgEl.appendChild(dragLine);
 
@@ -631,7 +951,9 @@ export default function MFlowCanvas() {
               document.addEventListener('mousemove', onMove);
               document.addEventListener('mouseup', onUp);
             };
-          }
+          };
+          wireConnectHandle('right');
+          wireConnectHandle('left');
 
           n.onmousedown = e => {
             e.stopPropagation();
@@ -672,6 +994,7 @@ export default function MFlowCanvas() {
                 touchedIds.add(id);
               });
               layoutRef.current.edgeList.forEach(e => { if (touchedIds.has(e.fromId) || touchedIds.has(e.toId)) layoutRef.current.redrawEdge(e); });
+              if (infos.length > 1) updateToolbarPosRef.current(); // keep the toolbar glued to a multi-node group-drag
             };
             const onUp = () => {
               document.removeEventListener('mousemove', onMove);
@@ -691,7 +1014,7 @@ export default function MFlowCanvas() {
       } catch { if (!dead && diagRef.current) diagRef.current.innerHTML = '<div style="color:var(--red);font-size:11px;padding:16px">Diagram error</div>'; }
     })();
     return () => { dead = true; };
-  }, [mermaidStr, wf?.states, activeId, updateStatePosition, takeSnapshot, addTransition]);
+  }, [mermaidStr, wf?.states, activeId, updateStatePosition, takeSnapshot, addTransition, updateTransition]);
 
   // New states need a real default name, not blank — a blank-named state is
   // deliberately invisible in the diagram (useMermaid.js: `if (!name)
@@ -783,32 +1106,48 @@ export default function MFlowCanvas() {
     const next = window.prompt('Rename state:', st.name);
     if (next != null && next.trim() && next.trim() !== st.name) { takeSnapshot(); renameState(activeId, st.id, next.trim()); }
   };
-  const handleDuplicateSelected = () => {
-    if (!wf) { setContextMenu(null); return; }
+  // Shared by the right-click menu (contextMenuNames) AND the floating
+  // multi-select toolbar (selected directly) — same reuse-over-recompute
+  // discipline as statesWithMeta/panToState elsewhere in this file, so the
+  // two entry points can't ever disagree about what Duplicate/Delete do.
+  const duplicateNamesList = names => {
+    if (!wf || !names.length) return;
     takeSnapshot();
-    const newIds = [];
-    contextMenuNames.forEach(name => {
+    names.forEach(name => {
       const st = wf.states.find(s => s.name === name);
-      if (st) { const id = duplicateState(activeId, st.id); if (id) newIds.push(id); }
+      if (st) duplicateState(activeId, st.id);
     });
-    setContextMenu(null);
   };
-  const handleDeleteSelected = () => {
-    if (!wf) { setContextMenu(null); return; }
+  // cascade:true — matches BPMN Standard's own confirmed, real behavior
+  // (@xyflow/react's deleteElements/deleteNodes both auto-remove connected
+  // edges, never block); Studio's own table keeps the old block-and-alert
+  // behavior since it calls deleteState with no options, which still
+  // defaults cascade to false.
+  const deleteNamesList = names => {
+    if (!wf || !names.length) return;
     takeSnapshot();
     const errors = [];
-    contextMenuNames.forEach(name => {
+    names.forEach(name => {
       const st = wf.states.find(s => s.name === name);
       if (!st) return;
-      const r = deleteState(activeId, st.id);
+      const r = deleteState(activeId, st.id, { cascade: true });
       if (!r?.ok) errors.push(r?.error);
     });
-    setContextMenu(null);
     setSelected(new Set());
     if (errors.length) window.alert(errors.join('\n'));
   };
+  const handleDuplicateSelected = () => { duplicateNamesList(contextMenuNames); setContextMenu(null); };
+  const handleDeleteSelected = () => { deleteNamesList(contextMenuNames); setContextMenu(null); };
   const handleSelectAll = () => {
     setSelected(new Set((wf?.states || []).map(s => s.name).filter(Boolean)));
+    setContextMenu(null);
+  };
+  // Edge/transition delete — the actual new capability this task adds.
+  // deleteTransition needs no cascade concept of its own (a transition has
+  // no downstream children to worry about), it's simply the second real
+  // caller of the store action Studio's own table already used alone.
+  const handleDeleteEdge = () => {
+    if (contextMenu?.type === 'edge' && contextMenu.transId) { takeSnapshot(); deleteTransition(activeId, contextMenu.transId); }
     setContextMenu(null);
   };
   // Quick preset swatches on the right-click menu — a faster path than
@@ -832,6 +1171,54 @@ export default function MFlowCanvas() {
     setContextMenu(null);
   };
 
+  // ── Process groups (background highlight + label over a related set of
+  // states) — deliberately NOT a new store concept. Membership lives as a
+  // plain field on each member state's own record (processGroupId/
+  // processGroupName), set through the existing updateState(wfId, stateId,
+  // patch) call exactly the way color already is a few lines above — no new
+  // action, no edit to useWorkflowStore.js. A state losing membership on
+  // delete/duplicate is automatic (nothing else ever looks up a deleted
+  // state's id), not a separate cleanup path. Rendering (the actual
+  // background rect + label) lives entirely in the render effect below.
+  const makeGroupId = () => `pg_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const handleGroupSelected = names => {
+    if (!wf || names.length < 2) { setContextMenu(null); return; }
+    const name = window.prompt('Process name for this group:', '');
+    if (name == null || !name.trim()) { setContextMenu(null); return; }
+    const groupId = makeGroupId();
+    takeSnapshot();
+    names.forEach(n => {
+      const st = wf.states.find(s => s.name === n);
+      if (st) updateState(activeId, st.id, { processGroupId: groupId, processGroupName: name.trim() });
+    });
+    setContextMenu(null);
+  };
+  const handleUngroupSelected = names => {
+    if (!wf || !names.length) { setContextMenu(null); return; }
+    takeSnapshot();
+    names.forEach(n => {
+      const st = wf.states.find(s => s.name === n);
+      if (st?.processGroupId) updateState(activeId, st.id, { processGroupId: null, processGroupName: null });
+    });
+    setContextMenu(null);
+  };
+  const selectionHasGroupedMember = contextMenuNames.some(n => wf?.states.find(s => s.name === n)?.processGroupId);
+
+  // Transition name — a plain, purely cosmetic `label` field, same
+  // rename-via-prompt() pattern as handleEditSelected above (state rename),
+  // via the existing updateTransition(wfId, transId, patch) call. Distinct
+  // from `conditions` (the real grammar field driving TriggerMode/dashing/
+  // diamond semantics) — that stays Studio-only and untouched; this is a
+  // second, independent, cosmetic field with no effect on any of that.
+  const handleEditTransitionLabel = () => {
+    if (!wf || contextMenu?.type !== 'edge' || !contextMenu.transId) { setContextMenu(null); return; }
+    const t = wf.transitions.find(t => t.id === contextMenu.transId);
+    setContextMenu(null);
+    if (!t) return;
+    const next = window.prompt('Transition name:', t.label || '');
+    if (next != null) { takeSnapshot(); updateTransition(activeId, t.id, { label: next.trim() || null }); }
+  };
+
   // ── Comment/status-box drag (simple, local — container-relative pixels,
   // not SVG user-space, since these overlay the diagram wrapper directly
   // rather than living inside the SVG). ──
@@ -848,6 +1235,8 @@ export default function MFlowCanvas() {
   };
 
   return (
+    <PanelGroup direction="horizontal" className="mflow-split">
+    <Panel defaultSize={55} minSize={30} className="mflow-split-left">
     <div className="mflow-shell">
       <MFlowPalette
         pinned={palettePinned}
@@ -856,6 +1245,23 @@ export default function MFlowCanvas() {
         onAddInitialState={() => { if (wf) { takeSnapshot(); addState(activeId, { name: uniqueStateName('New Initial State'), initial: true, color: stateColor }); } }}
         onAddEndState={() => { if (wf) { takeSnapshot(); addState(activeId, { name: uniqueStateName('New End State'), terminal: true, color: stateColor }); } }}
         onAddComment={() => { if (wf) { takeSnapshot(); addComment(activeId, undefined, commentColor); } }}
+        onAddDecision={() => {
+          if (!wf) return;
+          takeSnapshot();
+          // One state, two outcomes, two real transitions — the same
+          // addState/addTransition primitives every other tile already
+          // uses, just five calls behind one click. The diamond on the
+          // decision state is the pre-existing 2+-outgoing auto-detect
+          // firing on this real data, not a new shape or a new tile type.
+          const decisionName = uniqueStateName('Decision');
+          addState(activeId, { name: decisionName, color: stateColor });
+          const outcomeAName = uniqueStateName('Outcome A');
+          addState(activeId, { name: outcomeAName, color: stateColor });
+          const outcomeBName = uniqueStateName('Outcome B');
+          addState(activeId, { name: outcomeBName, color: stateColor });
+          addTransition(activeId, { from: decisionName, to: outcomeAName });
+          addTransition(activeId, { from: decisionName, to: outcomeBName });
+        }}
         stateColor={stateColor}
         onSetStateDefaultColor={setStateColor}
         selectedState={selectedState}
@@ -1019,6 +1425,11 @@ export default function MFlowCanvas() {
                 })()}
                 <button type="button" onClick={handleEditSelected} disabled={contextMenuNames.length !== 1}>✎ Edit</button>
                 <button type="button" onClick={handleDuplicateSelected}>⧉ Duplicate</button>
+                <button type="button" onClick={() => handleGroupSelected(contextMenuNames)} disabled={contextMenuNames.length < 2}
+                  title={contextMenuNames.length < 2 ? 'Select 2 or more states to group them' : 'Highlight these states as one labeled process group'}>▭ Group</button>
+                {selectionHasGroupedMember && (
+                  <button type="button" onClick={() => handleUngroupSelected(contextMenuNames)} title="Remove the process-group highlight from the selected state(s)">▭ Ungroup</button>
+                )}
                 <div className="bpmn-context-menu-divider"/>
                 <div className="bpmn-context-menu-label">Background color</div>
                 <div className="mflow-menu-swatches">
@@ -1044,12 +1455,53 @@ export default function MFlowCanvas() {
                 <div className="bpmn-context-menu-divider"/>
                 <button type="button" onClick={() => { takeSnapshot(); deleteComment(activeId, contextMenu.commentId); setContextMenu(null); }}>✕ Delete</button>
               </>
+            ) : contextMenu.type === 'edge' ? (
+              // Mirrors BPMN Standard's real edge menu (checked directly:
+              // Edit label / Duplicate / Delete / divider / Undo-Redo)
+              // scoped down to what actually applies here. Edit sets a
+              // plain, cosmetic `label` field (same rename-via-prompt()
+              // pattern as a state's own Edit) — distinct from `conditions`,
+              // the real grammar field (after()/if()/script()/role()) that
+              // drives TriggerMode/dashing/diamond semantics, which stays
+              // Studio-only and untouched by this. Duplicating a transition
+              // has no clear meaning in a state machine the way duplicating
+              // a task node does, so there's no Duplicate here. Delete is
+              // the other real capability; Undo/Redo come for free from the
+              // shared block below, same as every other menu type.
+              <>
+                <div className="bpmn-context-menu-label">
+                  {(() => {
+                    const t = wf?.transitions.find(t => t.id === contextMenu.transId);
+                    return t?.label ? t.label : `${contextMenu.fromName || '(unnamed)'} → ${contextMenu.toName || '(unnamed)'}`;
+                  })()}
+                </div>
+                <button type="button" onClick={handleEditTransitionLabel}>✎ Edit</button>
+                <button type="button" onClick={handleDeleteEdge}>✕ Delete</button>
+              </>
             ) : (
               <button type="button" onClick={handleSelectAll}>Select All</button>
             )}
             <div className="bpmn-context-menu-divider"/>
             <button type="button" onClick={() => { undo(); setContextMenu(null); }} disabled={!canUndo}>↺ Undo</button>
             <button type="button" onClick={() => { redo(); setContextMenu(null); }} disabled={!canRedo}>↻ Redo</button>
+          </div>
+        )}
+
+        {/* Floating multi-select toolbar — appears once 2+ states are
+            selected, matching BPMN Standard's SelectedNodesToolbar trigger
+            condition exactly (selectedNodes.length < 2 → hidden). Built
+            fresh for this canvas (see updateToolbarPos's own comment for
+            why React Flow's NodeToolbar/getNodesBounds aren't portable
+            here) — a plain positioned div, not an SVG element, since it
+            needs to render real DOM buttons regardless of the diagram's own
+            zoom/pan transform. */}
+        {toolbarPos && selected.size > 1 && (
+          <div className="mflow-selection-toolbar" style={{ left: toolbarPos.left, top: toolbarPos.top }}
+            onClick={e => e.stopPropagation()} onContextMenu={e => e.preventDefault()}>
+            <span className="mflow-selection-toolbar-count">{selected.size} selected</span>
+            <button type="button" onClick={() => duplicateNamesList([...selected])} title="Duplicate all selected states">⧉ Duplicate</button>
+            <button type="button" onClick={() => handleGroupSelected([...selected])} title="Highlight these states as one labeled process group">▭ Group</button>
+            <button type="button" onClick={() => deleteNamesList([...selected])} title="Delete all selected states">✕ Delete</button>
           </div>
         )}
       </div>
@@ -1168,5 +1620,11 @@ export default function MFlowCanvas() {
         </div>
       )}
     </div>
+    </Panel>
+    <PanelResizeHandle className="mflow-split-handle"/>
+    <Panel defaultSize={45} minSize={20} className="mflow-split-right">
+      <LiveTranslationView plan={translationPlan} error={translationError} isTranslating={isTranslating} version={translationVersion} hoveredStateKey={hoveredStateKey}/>
+    </Panel>
+    </PanelGroup>
   );
 }
