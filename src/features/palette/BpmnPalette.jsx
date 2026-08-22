@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { RectangleHorizontal, Columns2, Play, CircleStop, X, Circle, Plus, ArrowRight, Rows3, Search, Pin, PinOff, CornerDownRight, Minus, Spline } from 'lucide-react';
+import { useBpmnStore } from '../../store/useBpmnStore';
 
 // Left-side palette. Structurally unchanged since Phase B (still docked left,
 // categorized, searchable) — one review suggested replacing it with a
@@ -48,8 +49,15 @@ const CONNECTOR_STYLES = [
   { value: 'curved', Icon: Spline, label: 'Curved', title: 'Curved — smooth bezier curve' },
 ];
 
-export default function BpmnPalette({ onAddTask, onAddSubProcess, onAddStart, onAddEnd, onAddGateway, onAddPool, pinned, onTogglePinned, connectorStyle, onSetConnectorStyle }) {
-  const [search, setSearch] = useState('');
+export default function BpmnPalette({ onAddTask, onAddSubProcess, onAddStart, onAddEnd, onAddGateway, onAddPool, connectorStyle, onSetConnectorStyle }) {
+  // Search and pin state now live in paletteSlice (useBpmnStore), not local
+  // useState/props — same direct-store-read pattern this codebase already
+  // uses for animateFlow/businessView/connectorStyle, and read here without
+  // prop-drilling for the same reason those do.
+  const search = useBpmnStore(s => s.paletteSearch);
+  const setSearch = useBpmnStore(s => s.setPaletteSearch);
+  const pinned = useBpmnStore(s => s.palettePinned);
+  const togglePalettePinned = useBpmnStore(s => s.togglePalettePinned);
   const expanded = pinned;
 
   // Category boundary is deliberate, not incidental — Activities stops at
@@ -117,7 +125,7 @@ export default function BpmnPalette({ onAddTask, onAddSubProcess, onAddStart, on
     : categories;
 
   const toggleExpanded = () => {
-    onTogglePinned();
+    togglePalettePinned();
     if (pinned) setSearch('');
   };
 

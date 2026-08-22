@@ -7,7 +7,7 @@ import { NodeResizer } from '@xyflow/react';
 // risky override of real built-in behavior.
 //
 // Sizing is NOT owned here — node.style.width/height (set by addPool in
-// useBpmnStore.js) is applied by React Flow directly to the outer
+// nodesSlice.js) is applied by React Flow directly to the outer
 // .react-flow__node wrapper; this component only fills that box (100%),
 // matching how the Pro example's own group node is sized purely via style,
 // with nothing rendered inside it at all by default.

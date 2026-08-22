@@ -5,7 +5,7 @@
 // tends to fire distracting near-misses. Runs alongside BpmnCanvas.jsx's
 // existing snapToGrid — grid snapping alone can't line two nodes' centers
 // up unless both already sit on the grid.
-import { dimsFor as staticDims } from './bpmnModdle';
+import { dimsFor as staticDims } from '../features/bpmn-io/bpmnModdle';
 
 const DISTANCE = 5;
 

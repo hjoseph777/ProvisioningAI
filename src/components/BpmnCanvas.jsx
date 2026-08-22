@@ -1,38 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ReactFlow, ReactFlowProvider, Background, MiniMap, NodeToolbar, Position, ConnectionMode, SelectionMode, MarkerType, useReactFlow } from '@xyflow/react';
+import { ReactFlow, ReactFlowProvider, Background, MiniMap, ConnectionMode, SelectionMode, MarkerType, useReactFlow } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useBpmnStore, makeId } from '../store/useBpmnStore';
-import GatewayNode from './bpmn/GatewayNode';
-import TaskNode from './bpmn/TaskNode';
-import { StartEventNode, EndEventNode } from './bpmn/EventNode';
-import PoolNode from './bpmn/PoolNode';
-import FlowEdge from './bpmn/FlowEdge';
-import BpmnPalette from './bpmn/BpmnPalette';
-import SelectedNodesToolbar from './bpmn/SelectedNodesToolbar';
+import GatewayNode from '../features/nodes/GatewayNode';
+import TaskNode from '../features/nodes/TaskNode';
+import { StartEventNode, EndEventNode } from '../features/nodes/EventNode';
+import PoolNode from '../features/nodes/PoolNode';
+import FlowEdge from '../features/edges/FlowEdge';
+import { EditableEdgeComponent } from '../features/edges/EditableEdge/EditableEdge';
+import { RoutableEdgeComponent } from '../features/edges/RoutableEdge';
+import { useLibavoid } from '../features/edges/useLibavoid';
+import MinimapNode from '../features/minimap/MinimapNode';
+import { minimapNodeColor } from '../features/minimap/minimapNodeColor';
+import BpmnPalette from '../features/palette/BpmnPalette';
+import SelectedNodesToolbar from '../features/toolbar/SelectedNodesToolbar';
+import NodeInspectorToolbar from '../features/toolbar/NodeInspectorToolbar';
 import HelperLines from './bpmn/HelperLines';
-import { layoutWithDagre } from '../utils/bpmnAutoLayout';
 import { getHelperLines } from '../utils/bpmnHelperLines';
 import { sortForHierarchy, fitNodeIntoParent } from '../utils/bpmnPools';
-import { importBpmnXml, validateBpmnModel, locateWarning } from '../utils/bpmnModdle';
+import { validateBpmnModel, locateWarning } from '../features/bpmn-io/bpmnModdle';
 import { useBpmnCopyPaste } from '../hooks/useBpmnCopyPaste';
-
-// Human-readable type for the node inspector — derives from real typed data
-// only (Phase A/C), same "no cosmetic guessing" rule as the icons: a plain
-// Task/Start/End just says "Task"/"Start Event"/"End Event".
-function typeLabelFor(node) {
-  if (!node) return '';
-  if (node.type === 'gateway') {
-    const gt = node.data?.gatewayType || 'exclusive';
-    return `${gt[0].toUpperCase()}${gt.slice(1)} Gateway`;
-  }
-  if (node.type === 'input' || node.type === 'output') {
-    const kind = node.type === 'input' ? 'Start' : 'End';
-    const def = node.data?.eventDefinition;
-    return def ? `${def[0].toUpperCase()}${def.slice(1)} ${kind} Event` : `${kind} Event`;
-  }
-  const bpmnType = node.data?.bpmnType;
-  return bpmnType ? bpmnType.replace(/^bpmn:/, '').replace(/([a-z])([A-Z])/g, '$1 $2') : 'Task';
-}
 
 // 'default'/'input'/'output' override React Flow's built-in node components
 // (TaskNode/StartEventNode/EndEventNode) while node.type stays unset for
@@ -43,18 +30,18 @@ function typeLabelFor(node) {
 // nothing at all by default (confirmed from source) — same additive pattern
 // as the other three, not a risky override of real behavior.
 const nodeTypes = { gateway: GatewayNode, default: TaskNode, input: StartEventNode, output: EndEventNode, group: PoolNode };
-// Same per-type colors the nodes themselves already use (green Start, gold
-// End, gateway's own stroke-per-subtype) — the minimap should read as a
-// miniature of the real canvas, not introduce its own palette.
-const GATEWAY_MINIMAP_COLOR = { exclusive: '#6E8FC1', parallel: '#8993A7', inclusive: '#C99B5B' };
-const minimapNodeColor = (node) => {
-  if (node.type === 'input') return '#00C870';
-  if (node.type === 'output') return '#F0A500';
-  if (node.type === 'group') return 'transparent';
-  if (node.type === 'gateway') return GATEWAY_MINIMAP_COLOR[node.data?.gatewayType] || GATEWAY_MINIMAP_COLOR.exclusive;
-  return '#5878A0';
-};
-const edgeTypes = { flowEdge: FlowEdge };
+// Relocated into features/minimap/ this pass — minimapNodeColor.js (unchanged
+// logic) plus the new MinimapNode.tsx custom shape renderer (ported from
+// 16_shapes-pro-example, the only Pro example with a custom minimap node
+// component; adapted to this canvas's real BPMN node types, not 16_shapes'
+// own generic shapes). Both are still just props on the <MiniMap> below —
+// there was never a wrapper component to relocate.
+// FlowEdge stays default/registered first — 'editable-edge' (05_editable-edge)
+// and 'routable-edge' (10_libavoid-edge-routing, added in a later pass) are
+// additive selectable options, switched per-edge via the edge right-click
+// menu's "Type:" entries, never a replacement for FlowEdge's BPMN-semantic
+// label/comment behavior.
+const edgeTypes = { flowEdge: FlowEdge, 'editable-edge': EditableEdgeComponent, 'routable-edge': RoutableEdgeComponent };
 // Was unstyled — React Flow's own default (thin, low-contrast #b1b1b7, no
 // arrowhead at all since markerEnd was never set). --mid is the app's existing
 // muted-line color, already used for borders/dim text elsewhere.
@@ -97,6 +84,15 @@ function BpmnFlow() {
   const setActiveEdgeToolbarId = useBpmnStore(s => s.setActiveEdgeToolbarId);
   const duplicateEdge = useBpmnStore(s => s.duplicateEdge);
   const deleteEdge = useBpmnStore(s => s.deleteEdge);
+  const setEdgeType = useBpmnStore(s => s.setEdgeType);
+  // Loads the ~528KB libavoid WASM module once on mount and keeps its router
+  // in sync with the live nodes/edges thereafter (writes resolved routes
+  // into each routable-edge's data.points via edgesSlice.js's
+  // setEdgeRoutePoints). `ready` gates the "Type: Routable" menu entry below
+  // — this is the only edge type with an async-init requirement, matching
+  // the locked architecture's own note that libavoid needs an async gate
+  // while the other two edge types are synchronous.
+  const { ready: routableReady } = useLibavoid();
   const groupSelectedIntoPool = useBpmnStore(s => s.groupSelectedIntoPool);
   const duplicateNodes = useBpmnStore(s => s.duplicateNodes);
   const deleteNodes = useBpmnStore(s => s.deleteNodes);
@@ -111,7 +107,6 @@ function BpmnFlow() {
   const animateFlow = useBpmnStore(s => s.animateFlow);
   const setAnimateFlow = useBpmnStore(s => s.setAnimateFlow);
   const setEdges = useBpmnStore(s => s.setEdges);
-  const updateNodeLabel = useBpmnStore(s => s.updateNodeLabel);
   const duplicateNode = useBpmnStore(s => s.duplicateNode);
   const businessView = useBpmnStore(s => s.businessView);
   const setBusinessView = useBpmnStore(s => s.setBusinessView);
@@ -126,8 +121,13 @@ function BpmnFlow() {
   const redo = useBpmnStore(s => s.redo);
   const canUndo = history.past.length > 0;
   const canRedo = history.future.length > 0;
-  const { fitView, zoomIn, zoomOut, screenToFlowPosition, deleteElements, getIntersectingNodes, getInternalNode, getNodesBounds } = useReactFlow();
+  const saveToFile = useBpmnStore(s => s.saveToFile);
+  const loadFromFile = useBpmnStore(s => s.loadFromFile);
+  const exportBpmnFile = useBpmnStore(s => s.exportBpmnFile);
+  const importBpmnFileAction = useBpmnStore(s => s.importBpmnFile);
+  const { fitView, zoomIn, zoomOut, screenToFlowPosition, deleteElements, getIntersectingNodes, getInternalNode, getNodesBounds, toObject, setViewport } = useReactFlow();
   const importInputRef = useRef(null);
+  const saveLoadInputRef = useRef(null);
   const reconnectInProgressRef = useRef(false);
   const reconnectSucceededRef = useRef(false);
   const reconnectEdgeIdRef = useRef(null);
@@ -135,27 +135,27 @@ function BpmnFlow() {
   // Smart alignment guides (Phase D) — flow-space line positions, computed
   // in handleNodesChange below as a node drags, cleared once it isn't.
   const [helperLines, setHelperLines] = useState({});
-  // Reset whenever the selection changes, so the inspector doesn't stay
-  // open-by-default on a newly selected node the user hasn't asked to edit.
-  const [inspectorOpen, setInspectorOpen] = useState(false);
   const [interactionLocked, setInteractionLocked] = useState(false);
-  const [activeNodeToolbarId, setActiveNodeToolbarId] = useState(null);
+  // activeNodeToolbarId/inspectorOpen relocated into toolbarSlice.js
+  // (features/toolbar/) — only the setters are needed here; the values
+  // themselves are only ever read inside NodeInspectorToolbar.jsx now,
+  // which reads them straight from the store itself.
+  const setActiveNodeToolbarId = useBpmnStore(s => s.setActiveNodeToolbarId);
+  const setInspectorOpen = useBpmnStore(s => s.setInspectorOpen);
   const selectedNodes = nodes.filter(n => n.selected);
   // The single-node floating toolbar only makes sense for exactly one
   // selection — with 2+, SelectedNodesToolbar (bulk actions) takes over
   // instead, so this stays undefined rather than arbitrarily anchoring to
-  // whichever node .find() happens to return first.
+  // whichever node .find() happens to return first. Still computed here
+  // (not just inside NodeInspectorToolbar.jsx) because handleDetachSelected/
+  // handleDeleteSelected/handleDuplicateSelected below all close over it and
+  // need useReactFlow() hooks NodeInspectorToolbar.jsx can't call itself.
   const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : undefined;
-  useEffect(() => { setInspectorOpen(false); }, [selectedNode?.id]);
   // Transient toast for the explicit Export/Import actions (confirms the act
   // succeeded, plus element count) — distinct from the persistent validation
   // bar below, which continuously reflects current state regardless of
   // whether the user ever clicks Export/Import.
   const [bpmnStatus, setBpmnStatus] = useState(null);
-  // Default is unpinned — a 44px icon rail that overlays a 240px panel on
-  // hover, so it doesn't cost canvas width just sitting there. Pinning is an
-  // explicit opt-in for staying expanded, not the default.
-  const [palettePinned, setPalettePinned] = useState(false);
   // Persistent validation status bar (Phase E) — re-runs Phase A's real
   // validateBpmnModel() as the diagram changes, debounced so it doesn't
   // re-serialize/re-parse the whole model on every drag frame. Warnings are
@@ -249,12 +249,16 @@ function BpmnFlow() {
   // does not re-fit after nodes move, so Auto-arrange needs its own explicit
   // fitView() call once the new positions have actually rendered (a 0-delay
   // rAF, not synchronous — dagre's output needs a paint before fitView can
-  // measure real node bounds).
+  // measure real node bounds). The dagre layout + takeSnapshot themselves now
+  // live in layoutSlice.js's autoArrange action (Phase A, step 5) — fitView()
+  // stays here because it's a useReactFlow() hook method a plain store action
+  // can't call, same reason toObject()/setViewport stayed in this component
+  // for save-load.
+  const autoArrangeAction = useBpmnStore(s => s.autoArrange);
   const autoArrange = useCallback(() => {
-    takeSnapshot();
-    setNodes(layoutWithDagre(nodes, edges));
+    autoArrangeAction();
     requestAnimationFrame(() => fitView({ duration: 300, padding: 0.2 }));
-  }, [nodes, edges, setNodes, fitView, takeSnapshot]);
+  }, [autoArrangeAction, fitView]);
 
   // Drag-and-drop from the palette — adapted from React_Flow_Pro/shapes-pro-example's
   // own App.tsx onDragOver/onDrop pair (screenToFlowPosition + setNodes on drop).
@@ -634,18 +638,19 @@ function BpmnFlow() {
     requestAnimationFrame(() => fitView({ duration: 300, padding: 0.2 }));
   }, [setNodes, setEdges, fitView, takeSnapshot]);
 
-  // Real BPMN 2.0 export via bpmn-moddle (src/utils/bpmnModdle.js) — round-trips
-  // through fromXML first so "0 warnings" here means the file actually validates
-  // against the real schema, not just that toXML didn't throw.
+  // Real BPMN 2.0 export via bpmn-moddle (features/bpmn-io/bpmnModdle.js) —
+  // exportBpmnFile (bpmn-io slice) round-trips through fromXML first so "0
+  // warnings" here means the file actually validates against the real
+  // schema, not just that toXML didn't throw. No useReactFlow() hook
+  // involved, so the whole thing lives in the slice; this wrapper just
+  // turns the returned warnings into the toast.
   const handleExportBpmn = useCallback(async () => {
     try {
-      const { xml, warnings } = await validateBpmnModel(nodes, edges);
-      const blob = new Blob([xml], { type: 'application/xml' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `bpmn-standard-${Date.now()}.bpmn`;
-      a.click();
-      URL.revokeObjectURL(a.href);
+      const { warnings, cancelled } = await exportBpmnFile();
+      // Electron's native Save-As dialog (window.file.save) can be
+      // cancelled by the user — a real, silent no-op, not an error, same as
+      // dismissing any other save dialog.
+      if (cancelled) return;
       setBpmnStatus(warnings.length === 0
         ? { kind: 'ok', text: 'Exported — 0 schema warnings' }
         : { kind: 'warn', text: `Exported with ${warnings.length} schema warning(s) — see console` });
@@ -653,27 +658,63 @@ function BpmnFlow() {
     } catch (err) {
       setBpmnStatus({ kind: 'error', text: `Export failed: ${err.message}` });
     }
-  }, [nodes, edges]);
+  }, [exportBpmnFile]);
 
   const handleImportBpmnFile = useCallback(async (e) => {
     const file = e.target.files?.[0];
     e.target.value = ''; // allow re-selecting the same file next time
     if (!file) return;
     try {
-      const text = await file.text();
-      const { nodes: importedNodes, edges: importedEdges, warnings } = await importBpmnXml(text);
-      takeSnapshot(); // before replacing the canvas, so an unwanted import is one Ctrl+Z away from undone
-      setNodes(importedNodes);
-      setEdges(importedEdges);
+      const { count, warnings } = await importBpmnFileAction(file);
+      // fitView() stays here — it's a useReactFlow() hook method the slice's
+      // plain store action can't call, same reason toObject()/setViewport
+      // stayed in this component for save-load and fitView() stayed here
+      // for autoArrange.
       requestAnimationFrame(() => fitView({ duration: 300, padding: 0.2 }));
       setBpmnStatus(warnings.length === 0
-        ? { kind: 'ok', text: `Imported ${importedNodes.length} elements — 0 schema warnings` }
+        ? { kind: 'ok', text: `Imported ${count} elements — 0 schema warnings` }
         : { kind: 'warn', text: `Imported with ${warnings.length} schema warning(s) — see console` });
       if (warnings.length) console.warn('[bpmn-moddle] import warnings', warnings);
     } catch (err) {
       setBpmnStatus({ kind: 'error', text: `Import failed: ${err.message}` });
     }
-  }, [setNodes, setEdges, fitView, takeSnapshot]);
+  }, [importBpmnFileAction, fitView]);
+
+  // Save/load (Phase B, position 3) — reactflow.dev's own free "Save and
+  // Restore" pattern: toObject() (only reachable here, inside the component,
+  // since it's a useReactFlow() hook a plain store action can't call)
+  // captures {nodes, edges, viewport}; the slice handles the actual
+  // download. JSON file, no database, no auto-persistence — a plain reload
+  // still starts from the starter sketch (nodesSlice/edgesSlice's own
+  // initialNodes/initialEdges) unless a saved file is explicitly loaded.
+  const handleSaveToFile = useCallback(async () => {
+    try {
+      const result = await saveToFile(toObject());
+      // Electron's native Save-As dialog can be cancelled — a real, silent
+      // no-op, not an error, matching handleExportBpmn's own handling.
+      if (result?.cancelled) return;
+      setBpmnStatus({ kind: 'ok', text: `Saved — ${nodes.length} elements` });
+    } catch (err) {
+      setBpmnStatus({ kind: 'error', text: `Save failed: ${err.message}` });
+    }
+  }, [saveToFile, toObject, nodes.length]);
+
+  const handleLoadFromFile = useCallback(async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file next time
+    if (!file) return;
+    try {
+      const viewport = await loadFromFile(file);
+      // Restore the exact saved pan/zoom when the file has one (toObject()
+      // always includes it); fall back to fitView for a file that doesn't
+      // (e.g. hand-edited JSON), same fallback handleImportBpmnFile uses.
+      if (viewport) setViewport(viewport);
+      else requestAnimationFrame(() => fitView({ duration: 300, padding: 0.2 }));
+      setBpmnStatus({ kind: 'ok', text: 'Loaded from file' });
+    } catch (err) {
+      setBpmnStatus({ kind: 'error', text: `Load failed: ${err.message}` });
+    }
+  }, [loadFromFile, setViewport, fitView]);
 
   return (
     <div className="bpmn-canvas-wrap">
@@ -689,8 +730,6 @@ function BpmnFlow() {
           onAddEnd={addEnd}
           onAddGateway={addGateway}
           onAddPool={addPool}
-          pinned={palettePinned}
-          onTogglePinned={() => setPalettePinned(v => !v)}
           connectorStyle={connectorStyle}
           onSetConnectorStyle={setConnectorStyle}
         />
@@ -736,6 +775,12 @@ function BpmnFlow() {
               <button type="button" className="xb" onClick={handleExportBpmn} title="Export as real BPMN 2.0 XML (bpmn-moddle) — round-trip validated before download">⇩ Export BPMN</button>
               <button type="button" className="xb" onClick={() => importInputRef.current?.click()} title="Import a real BPMN 2.0 .bpmn/.xml file (bpmn-moddle)">⇧ Import BPMN</button>
               <input ref={importInputRef} type="file" accept=".bpmn,.xml" style={{ display: 'none' }} onChange={handleImportBpmnFile} />
+            </div>
+            <div className="bpmn-toolbar-divider" />
+            <div className="bpmn-saveload-controls" role="group" aria-label="Save and load">
+              <button type="button" className="xb" onClick={handleSaveToFile} title="Save the diagram to a JSON file (nodes, edges, viewport) — no database, this canvas has no other persistence">💾 Save</button>
+              <button type="button" className="xb" onClick={() => saveLoadInputRef.current?.click()} title="Load a diagram from a previously saved JSON file">📂 Load</button>
+              <input ref={saveLoadInputRef} type="file" accept=".json" style={{ display: 'none' }} onChange={handleLoadFromFile} />
             </div>
             <div className="bpmn-toolbar-divider" />
             <button type="button" className={`xb ${businessView ? 'blue' : ''}`}
@@ -852,6 +897,7 @@ function BpmnFlow() {
               <Background gap={GRID_GAP} />
               <MiniMap
                 nodeColor={minimapNodeColor}
+                nodeComponent={MinimapNode}
                 nodeStrokeWidth={0}
                 nodeBorderRadius={3}
                 maskColor="rgba(3,9,16,0.65)"
@@ -863,57 +909,16 @@ function BpmnFlow() {
               />
               <HelperLines horizontal={helperLines.horizontal} vertical={helperLines.vertical} />
               <SelectedNodesToolbar />
-              {/* Floating contextual toolbar (Phase D) — Edit/Duplicate/Delete on
-                  whatever node is currently selected; Edit expands an inline
-                  inspector scoped to id/type (read-only) + label (editable),
-                  per Decision 7 — no script/action-body editing lives here. */}
-              <NodeToolbar
-                nodeId={selectedNode?.id}
-                isVisible={!!selectedNode && activeNodeToolbarId === selectedNode.id}
-                position={Position.Top}
-                offset={14}
-              >
-                <div className="bpmn-node-toolbar">
-                  <div className="bpmn-node-toolbar-actions">
-                    <button
-                      type="button"
-                      className={inspectorOpen ? 'active' : ''}
-                      onClick={() => setInspectorOpen(v => !v)}
-                      title="Edit this element"
-                    >
-                      ✎ Edit
-                    </button>
-                    <button type="button" onClick={handleDuplicateSelected} title="Duplicate this element">⧉ Duplicate</button>
-                    {selectedNode?.parentId && (
-                      <button type="button" onClick={handleDetachSelected} title="Detach from its pool">⇱ Detach</button>
-                    )}
-                    <button type="button" onClick={handleDeleteSelected} title="Delete this element">✕ Delete</button>
-                  </div>
-                  {inspectorOpen && selectedNode && (
-                    <div className="bpmn-node-inspector" onClick={(e) => e.stopPropagation()}>
-                      {/* Business view hides ID/Type — "technical labels/IDs"
-                          per Phase E's own spec — Label is what a business
-                          reader actually cares about and stays either way. */}
-                      {!businessView && (
-                        <>
-                          <div className="bpmn-node-inspector-row"><span>ID</span><code>{selectedNode.id}</code></div>
-                          <div className="bpmn-node-inspector-row"><span>Type</span><code>{typeLabelFor(selectedNode)}</code></div>
-                        </>
-                      )}
-                      <div className="bpmn-node-inspector-row">
-                        <span>Label</span>
-                        <input
-                          value={selectedNode.data?.label || ''}
-                          autoFocus
-                          onFocus={takeSnapshot}
-                          onChange={(e) => updateNodeLabel(selectedNode.id, e.target.value)}
-                          placeholder="(none)"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </NodeToolbar>
+              {/* Floating contextual toolbar (Phase D), relocated into
+                  features/toolbar/NodeInspectorToolbar.jsx — Edit/Duplicate/
+                  Detach/Delete on whatever node is currently selected; Edit
+                  expands an inline inspector scoped to id/type (read-only) +
+                  label (editable), per Decision 7 — no script/action-body
+                  editing lives here. Detach/Delete stay wired through this
+                  component's own handlers (useReactFlow() hooks a plain
+                  child component/store action can't call), same reason
+                  fitView()/toObject() stayed component-side elsewhere. */}
+              <NodeInspectorToolbar onDetach={handleDetachSelected} onDelete={handleDeleteSelected} />
             </ReactFlow>
             {/* Right-click menu — a second, faster path to Edit/Duplicate/
                 Delete alongside double-click, matching the secondary
@@ -1003,15 +1008,30 @@ function BpmnFlow() {
                       </>
                     )
                   )}
-                  {contextMenu.type === 'edge' && (
-                    <>
-                      <button type="button" onClick={() => { setActiveEdgeToolbarId(contextMenu.id); setContextMenu(null); }}>✎ Edit label</button>
-                      <button type="button" onClick={() => { duplicateEdge(contextMenu.id); setContextMenu(null); }}>⧉ Duplicate</button>
-                      <button type="button" onClick={() => { deleteEdge(contextMenu.id); setContextMenu(null); }}>✕ Delete</button>
-                      <div className="bpmn-context-menu-divider" />
-                      {undoRedoBtns}
-                    </>
-                  )}
+                  {contextMenu.type === 'edge' && (() => {
+                    const menuEdgeType = edges.find(e => e.id === contextMenu.id)?.type || 'flowEdge';
+                    return (
+                      <>
+                        <button type="button" onClick={() => { setActiveEdgeToolbarId(contextMenu.id); setContextMenu(null); }}>✎ Edit label</button>
+                        <button type="button" onClick={() => { duplicateEdge(contextMenu.id); setContextMenu(null); }}>⧉ Duplicate</button>
+                        <button type="button" onClick={() => { deleteEdge(contextMenu.id); setContextMenu(null); }}>✕ Delete</button>
+                        <div className="bpmn-context-menu-divider" />
+                        <button type="button" className={menuEdgeType === 'flowEdge' ? 'active' : ''} onClick={() => { setEdgeType(contextMenu.id, 'flowEdge'); setContextMenu(null); }}>⬌ Type: Default</button>
+                        <button type="button" className={menuEdgeType === 'editable-edge' ? 'active' : ''} onClick={() => { setEdgeType(contextMenu.id, 'editable-edge'); setContextMenu(null); }} title="Draggable control points (05_editable-edge)">✥ Type: Editable</button>
+                        <button
+                          type="button"
+                          className={menuEdgeType === 'routable-edge' ? 'active' : ''}
+                          disabled={!routableReady}
+                          onClick={() => { setEdgeType(contextMenu.id, 'routable-edge'); setContextMenu(null); }}
+                          title={routableReady ? 'Obstacle-avoiding routing via libavoid (10_libavoid-edge-routing)' : 'Loading libavoid routing engine…'}
+                        >
+                          ⟿ Type: Routable{!routableReady && ' (loading…)'}
+                        </button>
+                        <div className="bpmn-context-menu-divider" />
+                        {undoRedoBtns}
+                      </>
+                    );
+                  })()}
                   {contextMenu.type === 'pane' && (
                     <>
                       <button type="button" disabled={nodes.length === 0} onClick={() => { setNodes(nodes.map(n => ({ ...n, selected: true }))); setContextMenu(null); }}>▦ Select All</button>
