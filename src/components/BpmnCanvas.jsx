@@ -93,6 +93,14 @@ function BpmnFlow() {
   // the locked architecture's own note that libavoid needs an async gate
   // while the other two edge types are synchronous.
   const { ready: routableReady } = useLibavoid();
+  // Synced into the store (edgesSlice.js) so BpmnPalette.jsx's edge-type
+  // picker can gate its own Routable option the same way the right-click
+  // menu already does below — a plain component-local value can't reach a
+  // sibling component without prop-drilling through the whole tree.
+  const setRoutableReady = useBpmnStore(s => s.setRoutableReady);
+  useEffect(() => { setRoutableReady(routableReady); }, [routableReady, setRoutableReady]);
+  const defaultEdgeType = useBpmnStore(s => s.defaultEdgeType);
+  const setDefaultEdgeType = useBpmnStore(s => s.setDefaultEdgeType);
   const groupSelectedIntoPool = useBpmnStore(s => s.groupSelectedIntoPool);
   const duplicateNodes = useBpmnStore(s => s.duplicateNodes);
   const deleteNodes = useBpmnStore(s => s.deleteNodes);
@@ -732,6 +740,9 @@ function BpmnFlow() {
           onAddPool={addPool}
           connectorStyle={connectorStyle}
           onSetConnectorStyle={setConnectorStyle}
+          defaultEdgeType={defaultEdgeType}
+          onSetDefaultEdgeType={setDefaultEdgeType}
+          routableReady={routableReady}
         />
         <div className="bpmn-main">
           <div className="bpmn-toolbar">

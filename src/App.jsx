@@ -716,6 +716,51 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
 .bpmn-pal-segmented button:hover{color:var(--a3)}
 .bpmn-pal-segmented button.active{background:var(--a2);color:#fff}
 
+/* New-connection edge-type picker (Default/Editable/Routable) — sits below
+   the connector-style segmented control, same Connectors group. Radio-card
+   style rather than an icon-only segmented row: this choice has real
+   downstream consequences (which renderer a whole new edge gets), so it
+   gets a visible label + one-line hint per option instead of relying on a
+   hover tooltip alone. --edge-type-color is set inline per option (each
+   type's own real on-canvas default stroke color), driving the left accent
+   bar, icon tint, active tint, and the radio dot together from one value. */
+.bpmn-pal-edge-type-heading{margin-top:2px}
+.bpmn-pal-edge-type-picker{display:flex;flex-direction:column;gap:5px;margin-top:2px}
+.bpmn-pal-edge-type-option{
+  position:relative;display:flex;align-items:center;gap:9px;width:100%;
+  padding:7px 9px 7px 13px;overflow:hidden;
+  background:var(--s3);border:1px solid var(--border);border-radius:7px;
+  color:var(--text);font-family:var(--mono);cursor:pointer;text-align:left;
+  transition:border-color .15s,background .15s;
+}
+.bpmn-pal-edge-type-option::before{
+  content:'';position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:var(--edge-type-color);opacity:.45;transition:opacity .15s;
+}
+.bpmn-pal-edge-type-option:hover:not(:disabled){border-color:var(--edge-type-color);background:var(--s4)}
+.bpmn-pal-edge-type-option:hover:not(:disabled)::before{opacity:.8}
+.bpmn-pal-edge-type-option.active{border-color:var(--edge-type-color);background:color-mix(in srgb, var(--edge-type-color) 12%, var(--s3))}
+.bpmn-pal-edge-type-option.active::before{opacity:1}
+.bpmn-pal-edge-type-option:disabled{opacity:.45;cursor:not-allowed}
+.bpmn-pal-edge-type-option svg{flex-shrink:0;color:var(--edge-type-color)}
+.bpmn-pal-edge-type-text{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
+.bpmn-pal-edge-type-label{font-size:10.5px;font-weight:600;display:flex;align-items:center;gap:6px;white-space:nowrap}
+.bpmn-pal-edge-type-hint{font-size:8.5px;color:var(--dim);line-height:1.35}
+.bpmn-pal-edge-type-loading{font-size:8px;color:var(--gold);font-weight:500}
+/* Radio dot — filled center only appears on .active, echoing the left
+   accent bar and background tint so "this is the current default" reads
+   three ways at once, not just one. */
+.bpmn-pal-edge-type-check{
+  width:13px;height:13px;border-radius:50%;flex-shrink:0;
+  border:1.5px solid var(--edge-type-color);opacity:.5;
+  display:flex;align-items:center;justify-content:center;transition:opacity .15s;
+}
+.bpmn-pal-edge-type-check::after{content:'';width:6px;height:6px;border-radius:50%;background:var(--edge-type-color);transform:scale(0);transition:transform .15s}
+.bpmn-pal-edge-type-option.active .bpmn-pal-edge-type-check{opacity:1}
+.bpmn-pal-edge-type-option.active .bpmn-pal-edge-type-check::after{transform:scale(1)}
+.bpmn-pal-edge-type-note{display:flex;align-items:flex-start;gap:6px;padding:1px 2px 0;color:var(--dim);font-size:8.5px;line-height:1.4}
+.bpmn-pal-edge-type-note svg{flex-shrink:0;margin-top:1px;opacity:.6}
+
 /* Collapsed rail (44px, icon-only) — same tiles, compact variant. */
 .bpmn-pal-rail{flex:1;overflow-y:auto;padding:8px 0;display:flex;flex-direction:column;align-items:center;gap:4px}
 .bpmn-pal-nudge{

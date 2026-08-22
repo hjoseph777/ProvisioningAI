@@ -29,14 +29,49 @@ export const initialEdges = [
   { id: 'bp-e6', source: 'bp-reject',  target: 'bp-end' },
 ];
 
+// Shared by onConnect (brand-new edges) and setEdgeType (switching an
+// existing one) — seeds the data shape a given edge type expects the first
+// time an edge becomes that type, so EditableEdge/RoutableEdge never render
+// against undefined data. Factored out rather than duplicated once onConnect
+// needed the same seeding logic setEdgeType already had.
+function seedDataForType(type, data) {
+  if (type === 'editable-edge' && !data?.points) {
+    return { ...data, points: [], algorithm: Algorithm.BezierCatmullRom };
+  }
+  return data;
+}
+
 export const createEdgesSlice = (set, get) => ({
   edges: initialEdges,
   activeEdgeToolbarId: null,
 
+  // Palette-driven default for NEW connections (BpmnPalette's edge-type
+  // picker) — a snapshot at connect time, not a live binding: changing the
+  // picker afterward never retroactively changes edges already drawn, same
+  // as switching an existing edge's type via right-click is already a
+  // one-time, explicit choice. Starts at 'flowEdge' so behavior is
+  // unchanged until an operator actually picks something else.
+  defaultEdgeType: 'flowEdge',
+  setDefaultEdgeType: (defaultEdgeType) => set({ defaultEdgeType }),
+
+  // Mirrors useLibavoid()'s own `ready` (BpmnCanvas.jsx syncs it in via a
+  // small useEffect) — a plain component-local value can't reach
+  // BpmnPalette.jsx without prop-drilling through the whole component tree,
+  // so it lives here instead, next to defaultEdgeType which needs it for
+  // the same reason activeNodeToolbarId moved into toolbarSlice.js.
+  routableReady: false,
+  setRoutableReady: (routableReady) => set({ routableReady }),
+
   onEdgesChange: (changes) => set(s => ({ edges: applyEdgeChanges(changes, s.edges) })),
   onConnect: (connection) => {
     get().takeSnapshot(); // matches the Pro example's own onConnect — undoable edge creation
-    set(s => ({ edges: addEdge(connection, s.edges) }));
+    const { defaultEdgeType } = get();
+    set(s => ({
+      edges: addEdge(
+        { ...connection, type: defaultEdgeType, data: seedDataForType(defaultEdgeType, undefined) },
+        s.edges,
+      ),
+    }));
   },
   reconnectEdge: (oldEdge, newConnection) => {
     get().takeSnapshot();
@@ -68,14 +103,9 @@ export const createEdgesSlice = (set, get) => ({
   setEdgeType: (id, type) => {
     get().takeSnapshot();
     set(s => ({
-      edges: s.edges.map(e => {
-        if (e.id !== id || e.type === type) return e;
-        let data = e.data;
-        if (type === 'editable-edge' && !data?.points) {
-          data = { ...data, points: [], algorithm: Algorithm.BezierCatmullRom };
-        }
-        return { ...e, type, data };
-      }),
+      edges: s.edges.map(e => (e.id === id && e.type !== type
+        ? { ...e, type, data: seedDataForType(type, e.data) }
+        : e)),
     }));
   },
 

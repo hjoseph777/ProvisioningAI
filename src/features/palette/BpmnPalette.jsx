@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { RectangleHorizontal, Columns2, Play, CircleStop, X, Circle, Plus, ArrowRight, Rows3, Search, Pin, PinOff, CornerDownRight, Minus, Spline } from 'lucide-react';
+import { RectangleHorizontal, Columns2, Play, CircleStop, X, Circle, Plus, ArrowRight, Rows3, Search, Pin, PinOff, CornerDownRight, Minus, Spline, Waypoints, PenTool, Route } from 'lucide-react';
 import { useBpmnStore } from '../../store/useBpmnStore';
 
 // Left-side palette. Structurally unchanged since Phase B (still docked left,
@@ -49,7 +49,22 @@ const CONNECTOR_STYLES = [
   { value: 'curved', Icon: Spline, label: 'Curved', title: 'Curved — smooth bezier curve' },
 ];
 
-export default function BpmnPalette({ onAddTask, onAddSubProcess, onAddStart, onAddEnd, onAddGateway, onAddPool, connectorStyle, onSetConnectorStyle }) {
+// New-connection edge type — same three options, same names, as the
+// per-edge "Type:" submenu on the edge right-click menu (BpmnCanvas.jsx).
+// This picker sets what a brand-new connection starts as; it never touches
+// edges that already exist (that's still the right-click menu's job) — see
+// edgesSlice.js's onConnect for the snapshot-at-connect-time semantics.
+// Colors match each type's own real on-canvas default stroke (FlowEdge's
+// `var(--mid)`, EditableEdge's default Bezier-Catmull-Rom green) so the
+// swatch is a genuine preview, not an arbitrary color choice; Routable gets
+// the app's own accent blue since routing is this canvas's "smart" option.
+const EDGE_TYPES = [
+  { value: 'flowEdge', Icon: Waypoints, label: 'Default', hint: 'Standard sequence flow line', color: 'var(--mid)' },
+  { value: 'editable-edge', Icon: PenTool, label: 'Editable', hint: 'Drag points to reshape the line', color: '#68D391' },
+  { value: 'routable-edge', Icon: Route, label: 'Routable', hint: 'Auto-routes around other nodes', color: 'var(--a3)' },
+];
+
+export default function BpmnPalette({ onAddTask, onAddSubProcess, onAddStart, onAddEnd, onAddGateway, onAddPool, connectorStyle, onSetConnectorStyle, defaultEdgeType, onSetDefaultEdgeType, routableReady }) {
   // Search and pin state now live in paletteSlice (useBpmnStore), not local
   // useState/props — same direct-store-read pattern this codebase already
   // uses for animateFlow/businessView/connectorStyle, and read here without
@@ -191,6 +206,45 @@ export default function BpmnPalette({ onAddTask, onAddSubProcess, onAddStart, on
                         </button>
                       ))}
                     </div>
+                  )}
+                  {cat.label === 'Connectors' && (
+                    <>
+                      <span className="bpmn-pal-group-lbl bpmn-pal-edge-type-heading">New connection type</span>
+                      <div className="bpmn-pal-edge-type-picker" role="radiogroup" aria-label="Default type for new connections">
+                        {EDGE_TYPES.map(({ value, Icon, label, hint, color }) => {
+                          const isRoutable = value === 'routable-edge';
+                          const disabled = isRoutable && !routableReady;
+                          const active = defaultEdgeType === value;
+                          return (
+                            <button
+                              key={value}
+                              type="button"
+                              role="radio"
+                              aria-checked={active}
+                              className={`bpmn-pal-edge-type-option${active ? ' active' : ''}`}
+                              style={{ '--edge-type-color': color }}
+                              disabled={disabled}
+                              onClick={() => onSetDefaultEdgeType(value)}
+                              title={disabled ? 'Loading libavoid routing engine…' : hint}
+                            >
+                              <Icon size={14} strokeWidth={2} />
+                              <span className="bpmn-pal-edge-type-text">
+                                <span className="bpmn-pal-edge-type-label">
+                                  {label}
+                                  {disabled && <span className="bpmn-pal-edge-type-loading">loading…</span>}
+                                </span>
+                                <span className="bpmn-pal-edge-type-hint">{hint}</span>
+                              </span>
+                              <span className="bpmn-pal-edge-type-check" aria-hidden="true" />
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="bpmn-pal-edge-type-note">
+                        <Route size={11} strokeWidth={2} />
+                        <span>Sets what new connections start as — right-click any existing edge to change its type.</span>
+                      </div>
+                    </>
                   )}
                 </div>
               ))}
