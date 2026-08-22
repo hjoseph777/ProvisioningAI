@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { RectangleHorizontal, Columns2, Play, CircleStop, X, Circle, Plus, ArrowRight, Rows3, Search, Pin, PinOff, CornerDownRight, Minus, Spline, Waypoints, PenTool, Route } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { RectangleHorizontal, Columns2, Play, CircleStop, X, Circle, Plus, ArrowRight, Rows3, Search, Pin, PinOff, CornerDownRight, Minus, Spline, Waypoints, PenTool, Route, ChevronRight, MoreHorizontal, Settings, User, Code2, ListChecks, Send, Inbox, Clock, Mail, CircleDot, FileText, StickyNote, Rows2, Radio, Zap, Asterisk, Hexagon, GitBranch, Database } from 'lucide-react';
 import { useBpmnStore } from '../../store/useBpmnStore';
 
 // Left-side palette. Structurally unchanged since Phase B (still docked left,
@@ -15,12 +15,18 @@ import { useBpmnStore } from '../../store/useBpmnStore';
 // React_Flow_Pro/shapes-pro-example's own sidebar-item.tsx/App.tsx drag-drop
 // pattern (setData on dragstart, screenToFlowPosition + setNodes on drop).
 // Click-to-add still works unchanged — drag is an addition, not a replacement.
-function Tile({ Icon, label, title, onClick, disabled, dragPayload, compact }) {
+// `grid` (2026-08-22, operator-provided reference layout): icon-on-top,
+// label-below, replacing the old full-width icon+label row for every
+// expanded-palette category except Connectors (which gets its own compact
+// row + shared description line, see below). `compact` (the 44px
+// icon-only rail) is unaffected — still row-shaped internally since only
+// the icon renders there either way.
+function Tile({ Icon, label, title, onClick, disabled, dragPayload, compact, grid }) {
   const draggable = !disabled && !!dragPayload;
   return (
     <button
       type="button"
-      className={`bpmn-pal-tile${disabled ? ' disabled' : ''}${compact ? ' compact' : ''}`}
+      className={`bpmn-pal-tile${disabled ? ' disabled' : ''}${compact ? ' compact' : ''}${grid ? ' grid' : ''}`}
       title={compact ? `${label} — ${title}` : title}
       disabled={disabled}
       onClick={onClick}
@@ -30,7 +36,7 @@ function Tile({ Icon, label, title, onClick, disabled, dragPayload, compact }) {
         e.dataTransfer.effectAllowed = 'move';
       } : undefined}
     >
-      <Icon size={15} strokeWidth={2} />
+      <Icon size={grid ? 17 : 15} strokeWidth={2} />
       {!compact && <span className="bpmn-pal-tile-label">{label}</span>}
     </button>
   );
@@ -64,22 +70,109 @@ const EDGE_TYPES = [
   { value: 'routable-edge', Icon: Route, label: 'Routable', hint: 'Auto-routes around other nodes', color: 'var(--a3)' },
 ];
 
-export default function BpmnPalette({ onAddTask, onAddSubProcess, onAddStart, onAddEnd, onAddGateway, onAddPool, connectorStyle, onSetConnectorStyle, defaultEdgeType, onSetDefaultEdgeType, routableReady }) {
+// Task subtypes (2026-08-22, Category A per progress.md's BPMN-
+// completeness audit) — these 6 were confirmed already fully wired
+// (TaskNode.jsx's icon/tooltip lookup, bpmnModdle.js's generic export
+// fallback) before this palette entry existed; exposing them is a
+// palette-only addition, same exception category as Sub-Process/Call
+// Activity below. Icons match TaskNode.jsx's own TASK_TYPE_ICON exactly
+// (not reinvented) so the palette tile previews the same icon the real
+// node will render once placed.
+const TASK_SUBTYPES = [
+  { bpmnType: 'bpmn:UserTask', Icon: User, label: 'User Task', desc: 'performed by a person via a UI' },
+  { bpmnType: 'bpmn:ServiceTask', Icon: Settings, label: 'Service Task', desc: 'automated, system-performed' },
+  { bpmnType: 'bpmn:ScriptTask', Icon: Code2, label: 'Script Task', desc: 'an automated script runs' },
+  { bpmnType: 'bpmn:BusinessRuleTask', Icon: ListChecks, label: 'Business Rule Task', desc: 'a decision/rule engine runs' },
+  { bpmnType: 'bpmn:SendTask', Icon: Send, label: 'Send Task', desc: 'sends a message' },
+  { bpmnType: 'bpmn:ReceiveTask', Icon: Inbox, label: 'Receive Task', desc: 'waits for a message' },
+];
+
+// Placeholder elements (2026-08-22, deferred BPMN-completeness backlog
+// from progress.md/CLAUDE.md's audit) — NOT functional. No onClick, no
+// dragPayload, disabled — same "intentional preview, not a broken
+// control" pattern this section always used. None of these create a
+// node and none export — the underlying support (new node types,
+// data-shape changes, or a genuinely new interaction pattern like
+// boundary-attachment or Pool-lane nesting) doesn't exist yet.
+//
+// Consolidated 2026-08-22, same day, into the Advanced section only —
+// originally split "6 visible in their real category, 6 hidden" per an
+// earlier instruction; operator then asked to give the *original*
+// (already-functional) tiles precedence in the always-visible area and
+// move every placeholder — visible or hidden — under Advanced, grouped
+// by real BPMN category rather than one flat list, all icon-only. This
+// declutters the top-level palette down to genuinely usable elements
+// only; every deferred item still previews here, just consistently in
+// one place instead of two.
+const ADVANCED_PLACEHOLDER_GROUPS = [
+  {
+    label: 'Events',
+    items: [
+      { Icon: Clock, label: 'Timer Event', title: 'Intermediate Timer Event — a time-based wait step (e.g. "after 3 days") — planned, not yet built', disabled: true },
+      { Icon: Mail, label: 'Message Event', title: 'Intermediate Message Event — waits for or sends a message mid-process — planned, not yet built', disabled: true },
+      { Icon: CircleDot, label: 'Boundary Event', title: 'Boundary Event — attaches to a Task\'s edge for error/exception handling — planned, not yet built (structurally new)', disabled: true },
+      { Icon: Radio, label: 'Signal Event', title: 'Intermediate Signal Event — broadcasts/catches a signal across the diagram — planned, not yet built', disabled: true },
+      { Icon: Zap, label: 'Error Event', title: 'Intermediate Error Event — catches a thrown error — planned, not yet built', disabled: true },
+      { Icon: Asterisk, label: 'Multiple Event', title: 'Multiple/Parallel Multiple Event — triggered by one or all of several conditions — planned, not yet built', disabled: true },
+    ],
+  },
+  {
+    label: 'Gateways',
+    items: [
+      { Icon: Hexagon, label: 'Event-Based Gateway', title: 'Event-Based Gateway — routes based on whichever event happens first — planned, not yet built', disabled: true },
+      { Icon: GitBranch, label: 'Complex Gateway', title: 'Complex Gateway — custom branching logic beyond XOR/AND/OR — planned, not yet built', disabled: true },
+    ],
+  },
+  {
+    label: 'Data/Artifacts',
+    items: [
+      { Icon: FileText, label: 'Data Object', title: 'Data Object — represents a document/data item flowing alongside the process — planned, not yet built', disabled: true },
+      { Icon: StickyNote, label: 'Text Annotation', title: 'Text Annotation — a free-text note attached to the diagram — planned, not yet built', disabled: true },
+      { Icon: Database, label: 'Data Store', title: 'Data Store — represents a persistent data store (e.g. a database) — planned, not yet built', disabled: true },
+    ],
+  },
+  {
+    label: 'Containers',
+    items: [
+      { Icon: Rows2, label: 'Lanes', title: 'Lanes — subdivides a Pool by role (e.g. Vendor / AP Clerk / Approver) — planned, not yet built (structurally new, not a variant of Pool)', disabled: true },
+    ],
+  },
+];
+
+export default function BpmnPalette({ onAddTask, onAddSubProcess, onAddTaskSubtype, onAddStart, onAddEnd, onAddGateway, onAddPool, connectorStyle, onSetConnectorStyle, defaultEdgeType, onSetDefaultEdgeType, routableReady }) {
   // Search and pin state now live in paletteSlice (useBpmnStore), not local
   // useState/props — same direct-store-read pattern this codebase already
   // uses for animateFlow/businessView/connectorStyle, and read here without
   // prop-drilling for the same reason those do.
+  // Which edge-type option is currently hovered/focused, for the shared
+  // description line below the Connectors row (2026-08-22) — never touches
+  // defaultEdgeType itself, purely a display concern, so plain local state
+  // is correct here (matches this file's existing precedent: search/pin
+  // state moved to the store because other components need to read it;
+  // this never leaves BpmnPalette).
+  const [hoveredEdgeType, setHoveredEdgeType] = useState(null);
+  // Advanced section (2026-08-22, operator request) — a structural scaffold
+  // only, collapsed by default. Deliberately local state, not paletteSlice:
+  // this is a pure UI expand/collapse, same category as hoveredEdgeType
+  // above, not app-wide data other components need to read. No new BPMN
+  // element types, node kinds, or export logic are introduced by this —
+  // see the full deferred-elements list logged in CLAUDE.md/progress.md.
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const search = useBpmnStore(s => s.paletteSearch);
   const setSearch = useBpmnStore(s => s.setPaletteSearch);
   const pinned = useBpmnStore(s => s.palettePinned);
   const togglePalettePinned = useBpmnStore(s => s.togglePalettePinned);
   const expanded = pinned;
 
-  // Category boundary is deliberate, not incidental — Activities stops at
-  // "Task" (generic). SQL/VAF/Integration-endpoint-level entries are
-  // Action/script concepts that stay manual in M-Files per Decision 7;
-  // this palette must not quietly reopen that line just because it's now
-  // easier to add palette entries.
+  // Category boundary was "Activities stops at Task (generic) + Sub-
+  // Process/Call Activity" — extended 2026-08-22 to include the 6
+  // TASK_SUBTYPES above, specifically because the BPMN-completeness audit
+  // confirmed they're Category A (already fully wired internally, palette-
+  // only addition), not because "it's now easier to add palette entries"
+  // in general. SQL/VAF/Integration-endpoint-level entries are still
+  // Action/script concepts that stay manual in M-Files per Decision 7 —
+  // that boundary is untouched; this extension is scoped narrowly to
+  // audit-confirmed BPMN task subtypes only.
   const categories = useMemo(() => [
     {
       label: 'Events',
@@ -93,6 +186,12 @@ export default function BpmnPalette({ onAddTask, onAddSubProcess, onAddStart, on
       items: [
         { Icon: RectangleHorizontal, label: 'Task', title: 'Task — a unit of work in the process (click to add, or drag onto the canvas)', onClick: () => onAddTask(), dragPayload: { kind: 'task' } },
         { Icon: Columns2, label: 'Sub-Process', title: 'Sub-Process (Call Activity) — a reference to a separate, predefined process (click to add, or drag onto the canvas)', onClick: () => onAddSubProcess(), dragPayload: { kind: 'subprocess' } },
+        ...TASK_SUBTYPES.map(({ bpmnType, Icon, label, desc }) => ({
+          Icon, label,
+          title: `${label} — ${desc} (click to add, or drag onto the canvas)`,
+          onClick: () => onAddTaskSubtype(bpmnType, label),
+          dragPayload: { kind: 'taskSubtype', bpmnType, label },
+        })),
       ],
     },
     {
@@ -124,7 +223,7 @@ export default function BpmnPalette({ onAddTask, onAddSubProcess, onAddStart, on
         { Icon: Rows3, label: 'Pool', title: 'Pool — a container; drag other elements into it to make them its children (click to add, or drag onto the canvas)', onClick: () => onAddPool(), dragPayload: { kind: 'pool' } },
       ],
     },
-  ], [onAddTask, onAddSubProcess, onAddStart, onAddEnd, onAddGateway, onAddPool]);
+  ], [onAddTask, onAddSubProcess, onAddTaskSubtype, onAddStart, onAddEnd, onAddGateway, onAddPool]);
 
   const q = search.trim().toLowerCase();
   const filtered = q
@@ -188,8 +287,13 @@ export default function BpmnPalette({ onAddTask, onAddSubProcess, onAddStart, on
                       <span>Drag from a node's own connector dot to another node. Drop on empty canvas instead and it creates a connected task for you automatically.</span>
                     </div>
                   ) : (
-                    <div className="bpmn-pal-tiles">
-                      {cat.items.map(item => <Tile key={item.label} {...item} />)}
+                    // Column count is CSS auto-fit/minmax, not JS-computed
+                    // from item count (see .bpmn-pal-tiles-grid) — a 2-item
+                    // row naturally shows 2 columns, a 3-item row shows 3
+                    // when there's room, matching the reference layout
+                    // without a fixed-width guess.
+                    <div className="bpmn-pal-tiles-grid">
+                      {cat.items.map(item => <Tile key={item.label} {...item} grid />)}
                     </div>
                   )}
                   {cat.label === 'Connectors' && (
@@ -207,48 +311,100 @@ export default function BpmnPalette({ onAddTask, onAddSubProcess, onAddStart, on
                       ))}
                     </div>
                   )}
-                  {cat.label === 'Connectors' && (
-                    <>
-                      <span className="bpmn-pal-group-lbl bpmn-pal-edge-type-heading">New connection type</span>
-                      <div className="bpmn-pal-edge-type-picker" role="radiogroup" aria-label="Default type for new connections">
-                        {EDGE_TYPES.map(({ value, Icon, label, hint, color }) => {
-                          const isRoutable = value === 'routable-edge';
-                          const disabled = isRoutable && !routableReady;
-                          const active = defaultEdgeType === value;
-                          return (
-                            <button
-                              key={value}
-                              type="button"
-                              role="radio"
-                              aria-checked={active}
-                              className={`bpmn-pal-edge-type-option${active ? ' active' : ''}`}
-                              style={{ '--edge-type-color': color }}
-                              disabled={disabled}
-                              onClick={() => onSetDefaultEdgeType(value)}
-                              title={disabled ? 'Loading libavoid routing engine…' : hint}
-                            >
-                              <Icon size={14} strokeWidth={2} />
-                              <span className="bpmn-pal-edge-type-text">
-                                <span className="bpmn-pal-edge-type-label">
+                  {cat.label === 'Connectors' && (() => {
+                    // Compact 3-icon grid (2026-08-22, matches the reference
+                    // layout's density) replacing the old vertical stacked
+                    // cards — but the operator was explicit this shouldn't
+                    // become hover-only like a tooltip: the description
+                    // below is a real, always-rendered line, just showing
+                    // whichever option is hovered/focused right now, falling
+                    // back to the currently SELECTED option at rest so it's
+                    // never blank. Same underlying data/state
+                    // (defaultEdgeType, onSetDefaultEdgeType) as before —
+                    // this is a display change, not a behavior change.
+                    const shown = EDGE_TYPES.find(t => t.value === hoveredEdgeType)
+                      || EDGE_TYPES.find(t => t.value === defaultEdgeType)
+                      || EDGE_TYPES[0];
+                    return (
+                      <>
+                        <span className="bpmn-pal-group-lbl bpmn-pal-edge-type-heading">New connection type</span>
+                        <div className="bpmn-pal-edge-type-grid" role="radiogroup" aria-label="Default type for new connections">
+                          {EDGE_TYPES.map(({ value, Icon, label, hint, color }) => {
+                            const isRoutable = value === 'routable-edge';
+                            const disabled = isRoutable && !routableReady;
+                            const active = defaultEdgeType === value;
+                            return (
+                              <button
+                                key={value}
+                                type="button"
+                                role="radio"
+                                aria-checked={active}
+                                className={`bpmn-pal-edge-type-option${active ? ' active' : ''}`}
+                                style={{ '--edge-type-color': color }}
+                                disabled={disabled}
+                                onClick={() => onSetDefaultEdgeType(value)}
+                                onMouseEnter={() => setHoveredEdgeType(value)}
+                                onMouseLeave={() => setHoveredEdgeType(null)}
+                                onFocus={() => setHoveredEdgeType(value)}
+                                onBlur={() => setHoveredEdgeType(null)}
+                                title={disabled ? 'Loading libavoid routing engine…' : hint}
+                              >
+                                <Icon size={17} strokeWidth={2} />
+                                <span className="bpmn-pal-tile-label">
                                   {label}
-                                  {disabled && <span className="bpmn-pal-edge-type-loading">loading…</span>}
+                                  {disabled && <span className="bpmn-pal-edge-type-loading">…</span>}
                                 </span>
-                                <span className="bpmn-pal-edge-type-hint">{hint}</span>
-                              </span>
-                              <span className="bpmn-pal-edge-type-check" aria-hidden="true" />
-                            </button>
-                          );
-                        })}
-                      </div>
-                      <div className="bpmn-pal-edge-type-note">
-                        <Route size={11} strokeWidth={2} />
-                        <span>Sets what new connections start as — right-click any existing edge to change its type.</span>
-                      </div>
-                    </>
-                  )}
+                                <span className="bpmn-pal-edge-type-check" aria-hidden="true" />
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="bpmn-pal-edge-type-desc">{shown.hint}</div>
+                        <div className="bpmn-pal-edge-type-note">
+                          <Route size={11} strokeWidth={2} />
+                          <span>Sets what new connections start as — right-click any existing edge to change its type.</span>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               ))}
               {filtered.length === 0 && <div className="bpmn-pal-empty">No matching elements</div>}
+              {/* Advanced section (2026-08-22, structural scaffold; content
+                  updated same day) — collapsed by default. Now shows the 6
+                  PLACEHOLDER_ADVANCED items (the more niche/complex half of
+                  the deferred backlog — Signal/Error/Multiple Events,
+                  Event-Based/Complex Gateways, Data Store), icon-only
+                  ("small icon only" per operator instruction) rather than
+                  the single generic "more coming" tile this section
+                  originally shipped with. Every tile is disabled, no
+                  onClick/dragPayload — clearly non-functional previews, not
+                  stubs of working features. The caption line makes that
+                  explicit in words too, not just via the dimmed styling. */}
+              <div className="bpmn-pal-group">
+                <button
+                  type="button"
+                  className="bpmn-pal-advanced-toggle"
+                  onClick={() => setAdvancedOpen(v => !v)}
+                  aria-expanded={advancedOpen}
+                >
+                  <ChevronRight size={11} className={`bpmn-pal-advanced-chevron${advancedOpen ? ' open' : ''}`} />
+                  <span className="bpmn-pal-group-lbl">Advanced</span>
+                </button>
+                {advancedOpen && (
+                  <>
+                    <div className="bpmn-pal-advanced-caption">More BPMN element types — planned, not yet built</div>
+                    {ADVANCED_PLACEHOLDER_GROUPS.map(group => (
+                      <div className="bpmn-pal-advanced-subgroup" key={group.label}>
+                        <span className="bpmn-pal-advanced-subgroup-lbl">{group.label}</span>
+                        <div className="bpmn-pal-tiles-compact-grid">
+                          {group.items.map(item => <Tile key={item.label} {...item} compact />)}
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
             </div>
           </>
         ) : (
@@ -267,6 +423,32 @@ export default function BpmnPalette({ onAddTask, onAddSubProcess, onAddStart, on
                 {cat.items.map(item => <Tile key={item.label} {...item} compact />)}
               </div>
             ))}
+            {/* Advanced show/hide, collapsed-rail version (2026-08-22) —
+                same shared advancedOpen state as the expanded panel's own
+                Advanced toggle, so expanding it in one view carries over
+                to the other rather than tracking two independent states
+                for what's conceptually one section. Icon-only, matching
+                every other rail tile — no label text fits at 44px. */}
+            <div className="bpmn-pal-rail-group">
+              <div className="bpmn-pal-rail-divider" />
+              <button
+                type="button"
+                className={`bpmn-pal-nudge${advancedOpen ? ' active' : ''}`}
+                onClick={() => setAdvancedOpen(v => !v)}
+                title={advancedOpen ? 'Hide advanced (more BPMN element types — planned, not yet built)' : 'Show advanced (more BPMN element types — planned, not yet built)'}
+              >
+                <ChevronRight size={12} className={`bpmn-pal-advanced-chevron${advancedOpen ? ' open' : ''}`} />
+              </button>
+              {advancedOpen && (
+                <Tile
+                  Icon={MoreHorizontal}
+                  label="More elements coming soon"
+                  title="Additional BPMN element types (Intermediate/Boundary Events, Service/User/Script Tasks, Event-Based/Complex Gateways, Data Objects, Lanes, and more) — planned, not yet built"
+                  disabled
+                  compact
+                />
+              )}
+            </div>
           </div>
         )}
       </div>

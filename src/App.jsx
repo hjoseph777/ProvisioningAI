@@ -663,6 +663,16 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
    themselves (an icon-library swap is a bigger, riskier change than this
    purely-visual pass calls for). */
 .bpmn-tb-icon{display:inline-block;width:13px;font-size:11px;line-height:1;text-align:center;vertical-align:-1px}
+/* Zoom stepper (2026-08-22) — Zoom in/out combined into one visual control,
+   + on top / - on bottom, same outer chrome .xb buttons already use so it
+   still reads as part of the toolbar's own button family. */
+.bpmn-zoom-stack{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:3px;overflow:hidden;flex-shrink:0}
+.bpmn-zoom-stack button{
+  font-size:9.5px;font-family:var(--mono);padding:1px 10px;border:none;background:transparent;
+  color:var(--mid2);cursor:pointer;transition:all .15s;line-height:1.5;
+}
+.bpmn-zoom-stack button:first-child{border-bottom:1px solid var(--border)}
+.bpmn-zoom-stack button:hover{background:var(--s3);color:var(--a3)}
 /* Groups functional clusters instead of one flat button row — height only
    (not the toolbar's own top/bottom padding), so it reads as a quiet
    separator rather than a heavy rule. */
@@ -685,20 +695,29 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
    comfortable, not forced. Was 48px; tightened here after checking, not
    guessed at (an external review guessed "60-80px" without checking either
    number — the real prior value was 48px, not that).
-   200px (was 240px, 2026-08-22 UX pass): measured, not guessed — every real
-   content element (tile labels, search input, the 3 edge-type picker cards'
-   label+hint text) was probed live at 170/180/190/200/210/220/240px via
-   getBoundingClientRect. No tile label ever truncates or overflows its own
-   button down to 170px (longest is "Sub-Process" at 66px, tiles were never
-   the constraint). The edge-type cards' hint text is the real constraint:
-   at 240px "Default"'s hint sits on 1 line while "Editable"/"Routable" wrap
-   to 2, giving three visibly mismatched card heights; at 200px all three
-   wrap to a uniform 2 lines (54px cards) with no orphaned single-word
-   lines — narrower AND more visually consistent than the old width. Below
-   190px the cards start wrapping unevenly again (180px: 2/2/3 lines; 170px:
-   3/3/3, tighter). 200px is the narrowest point that stays uniform. */
+   175px (was 200px, then 240px before that — 2026-08-22, second UX pass,
+   grid-layout redesign): measured, not guessed, same discipline as the
+   first width change but with a real lesson learned along the way. The
+   palette's expanded categories moved from full-width icon+label rows to
+   an icon-on-top/label-below grid (operator-provided reference layout).
+   grid-template-columns:repeat(auto-fit,minmax(64px,1fr)) — 64px is the
+   measured minimum that keeps this app's longest real single-word labels
+   ("Exclusive"/"Inclusive", no hyphen or space to wrap at) on one line.
+   Below 160px real container width, auto-fit silently collapses every
+   category to 1 column instead of 2 — that's NOT the same thing as "zero
+   horizontal overflow," which stayed true even at 130px because a 1-column
+   stack always fits; a naive overflow-only check would have picked a width
+   that looked fine numerically while actually regressing back to the old
+   row-list layout visually. Caught by measuring actual rendered column
+   COUNT per category at each width, not just overflow. 175px sits safely
+   above the exact 155->160px collapse cliff (padding + the sidebar's own
+   scrollbar eat into the raw minmax math, so the real threshold is tighter
+   than 2*64px+gap suggests), giving every category a real 2-column grid
+   (Gateways/Connectors settle into a clean 2+1 layout, three real items
+   never fitting 3-wide at any width narrow enough to be worth using) with
+   zero truncation and zero mid-word breaks. */
 .bpmn-pal-shell{width:44px;flex-shrink:0;position:relative;z-index:20}
-.bpmn-pal-shell.pinned{width:200px}
+.bpmn-pal-shell.pinned{width:175px}
 .bpmn-pal-panel{
   position:relative;width:44px;height:100%;display:flex;flex-direction:column;overflow:hidden;
   background:rgba(7,17,31,0.85);backdrop-filter:blur(12px);border-right:1px solid var(--border);
@@ -707,12 +726,40 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
    at the same moment width changes — animating width across that snap reads
    as a glitch (and measures unreliably), so this transitions instantly. */
 .bpmn-pal-shell:not(.pinned) .bpmn-pal-panel.expanded{
-  position:absolute;left:0;top:0;bottom:0;width:200px;box-shadow:8px 0 24px rgba(0,0,0,.45);
+  position:absolute;left:0;top:0;bottom:0;width:175px;box-shadow:8px 0 24px rgba(0,0,0,.45);
 }
 /* Pinned case: position never changes (stays relative/in-flow), so a width
    transition here is safe and reads as an intentional, smooth pin/unpin. */
-.bpmn-pal-shell.pinned .bpmn-pal-panel{width:200px;transition:width .15s ease}
+.bpmn-pal-shell.pinned .bpmn-pal-panel{width:175px;transition:width .15s ease}
 .bpmn-pal-sidebar-head{flex-shrink:0;display:flex;align-items:center;gap:6px;padding:8px;border-bottom:1px solid var(--border)}
+/* Advanced section toggle (2026-08-22) — same chevron-rotate convention
+   Command Center's own collapsible sections already use (.cc-sec-chev),
+   applied here rather than inventing a new expand/collapse visual
+   language. Reuses .bpmn-pal-group-lbl for the text so the label itself
+   looks identical to every other category heading; only the button
+   wrapper and chevron are new. */
+.bpmn-pal-advanced-toggle{display:flex;align-items:center;gap:4px;width:100%;padding:0;background:none;border:none;cursor:pointer;text-align:left}
+.bpmn-pal-advanced-toggle:hover .bpmn-pal-group-lbl{color:var(--a3)}
+.bpmn-pal-advanced-chevron{color:var(--mid2);transition:transform .15s;flex-shrink:0}
+.bpmn-pal-advanced-chevron.open{transform:rotate(90deg)}
+/* Advanced section content (2026-08-22) — 6 icon-only placeholders,
+   "small icon only" per operator instruction, not the icon+label grid
+   every real category uses. flex-wrap, not CSS grid: these are 32px
+   .bpmn-pal-tile.compact tiles, much smaller than .bpmn-pal-tiles-grid's
+   64px minmax track, so reusing that grid would leave large gaps —
+   a wrapping flex row packs them tightly instead, as many per row as
+   the panel width allows. */
+.bpmn-pal-advanced-caption{font-size:8.5px;color:var(--dim);font-style:italic;padding:0 2px 2px;line-height:1.4}
+.bpmn-pal-tiles-compact-grid{display:flex;flex-wrap:wrap;gap:6px}
+/* Sub-group headers inside Advanced (2026-08-22) — all 12 placeholders
+   consolidated here, grouped by real BPMN category (Events/Gateways/
+   Data-Artifacts/Containers) rather than one undifferentiated row of 12
+   icons. Smaller/dimmer than .bpmn-pal-group-lbl (the top-level category
+   heading) so the nesting reads clearly — this is a sub-heading within
+   Advanced, not a peer of Events/Activities/Gateways/etc. */
+.bpmn-pal-advanced-subgroup{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+.bpmn-pal-advanced-subgroup:first-of-type{margin-top:0}
+.bpmn-pal-advanced-subgroup-lbl{font-size:7.5px;color:var(--dim);letter-spacing:.6px;text-transform:uppercase;padding:0 2px}
 .bpmn-pal-search-wrap{flex:1;position:relative;display:flex;align-items:center;min-width:0}
 .bpmn-pal-search-icon{position:absolute;left:7px;color:var(--dim);pointer-events:none}
 .bpmn-pal-search{width:100%;padding:5px 8px 5px 24px;background:var(--s3);border:1px solid var(--border);border-radius:5px;color:var(--text);font-family:var(--mono);font-size:9.5px}
@@ -724,6 +771,14 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
 .bpmn-pal-group{display:flex;flex-direction:column;gap:4px}
 .bpmn-pal-group-lbl{font-size:8px;color:var(--mid2);letter-spacing:.8px;text-transform:uppercase;padding:0 2px}
 .bpmn-pal-tiles{display:flex;flex-direction:column;gap:3px}
+/* auto-fit + minmax, not a hardcoded column count: 64px is the measured
+   minimum that keeps every real label here ("Exclusive"/"Inclusive",
+   this app's longest single-word, unhyphenatable BPMN names) on one
+   line without the ugly mid-word breaks a fixed 3-column grid forced at
+   this panel's narrower widths. A 2-item row naturally shows 2 columns,
+   a 3-item row shows 3 when there's room and wraps to 2+1 otherwise —
+   content-driven, not JS-computed from item count. */
+.bpmn-pal-tiles-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(64px,1fr));gap:6px}
 .bpmn-pal-tile{
   display:flex;align-items:center;gap:8px;padding:6px 8px;width:100%;
   background:var(--s3);border:1px solid var(--border);border-radius:6px;
@@ -732,6 +787,28 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
 .bpmn-pal-tile:hover:not(:disabled){border-color:var(--a2);color:var(--a3);background:var(--s4)}
 .bpmn-pal-tile:disabled{opacity:.4;cursor:not-allowed}
 .bpmn-pal-tile-label{white-space:nowrap}
+/* Grid tiles (2026-08-22, operator-provided reference layout) — icon on
+   top, label below, replacing the old full-width icon+label row for every
+   expanded category except Connectors (own compact grid, below). Label
+   wraps here (unlike the row variant above) since a 2-3-column tile is
+   narrower than the longest label ("Sub-Process") at any width worth
+   using — confirmed via live measurement before picking the final panel
+   width, not assumed. */
+/* min-width:0 overrides a grid item's default min-width:auto, which
+   otherwise equals the tile's longest unbreakable word ("Exclusive",
+   "Routable", …) and silently floors the whole grid's real width no
+   matter how narrow the container is set — found live via a fixed
+   234px horizontal-overflow that didn't budge across seven tested
+   container widths, before this fix. */
+.bpmn-pal-tile.grid{flex-direction:column;justify-content:center;gap:5px;padding:9px 4px;min-width:0}
+/* white-space:normal only, no word-break:break-word — a first pass with
+   break-word produced "Exclu"/"sive" and "Paral"/"lel", genuinely ugly
+   mid-word splits, since these BPMN gateway names have no natural break
+   point (no hyphen/space) for the browser to use. The real fix is
+   auto-fit's minmax() below keeping every tile wide enough for its
+   longest single-word label on one line; word-wrap is still allowed for
+   labels that DO have a natural break point ("Sub-Process"). */
+.bpmn-pal-tile.grid .bpmn-pal-tile-label{white-space:normal;line-height:1.25;text-align:center}
 .bpmn-pal-empty{font-size:9.5px;color:var(--dim);padding:6px 2px}
 /* Connectors' info note — deliberately NOT tile-shaped (no border/button
    look), so it reads as explanatory text rather than a broken control. */
@@ -749,57 +826,51 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
 .bpmn-pal-segmented button:hover{color:var(--a3)}
 .bpmn-pal-segmented button.active{background:var(--a2);color:#fff}
 
-/* New-connection edge-type picker (Default/Editable/Routable) — sits below
-   the connector-style segmented control, same Connectors group. Radio-card
-   style rather than an icon-only segmented row: this choice has real
-   downstream consequences (which renderer a whole new edge gets), so it
-   gets a visible label + one-line hint per option instead of relying on a
-   hover tooltip alone. --edge-type-color is set inline per option (each
-   type's own real on-canvas default stroke color), driving the left accent
-   bar, icon tint, active tint, and the radio dot together from one value. */
+/* New-connection edge-type picker (Default/Editable/Routable), sits below
+   the connector-style segmented control, same Connectors group.
+   Redesigned 2026-08-22 (operator-provided reference layout) from vertical
+   stacked cards into a compact 3-icon grid, matching the reference's
+   density — but the operator was explicit this must not become
+   hover-only like a plain tooltip, since which renderer a new edge gets
+   is a real, consequential choice. Resolution: .bpmn-pal-edge-type-desc
+   below is a real, always-rendered line (not a :hover-only reveal) that
+   shows whichever option is hovered/focused (BpmnPalette.jsx's
+   hoveredEdgeType), falling back to the currently SELECTED option at
+   rest — so a description is always visible, never blank, while the
+   grid itself stays compact. --edge-type-color is set inline per option
+   (each type's own real on-canvas default stroke color), driving the
+   icon tint, active tint, and the radio-dot badge together from one
+   value — same mechanism as before, just applied to a tile shape instead
+   of a card row. */
 .bpmn-pal-edge-type-heading{margin-top:2px}
-.bpmn-pal-edge-type-picker{display:flex;flex-direction:column;gap:5px;margin-top:2px}
+.bpmn-pal-edge-type-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(64px,1fr));gap:6px;margin-top:2px}
 .bpmn-pal-edge-type-option{
-  position:relative;display:flex;align-items:center;gap:9px;width:100%;
-  padding:7px 9px 7px 13px;overflow:hidden;
-  background:var(--s3);border:1px solid var(--border);border-radius:7px;
-  color:var(--text);font-family:var(--mono);cursor:pointer;text-align:left;
-  transition:border-color .15s,background .15s;
-}
-.bpmn-pal-edge-type-option::before{
-  content:'';position:absolute;left:0;top:0;bottom:0;width:3px;
-  background:var(--edge-type-color);opacity:.45;transition:opacity .15s;
+  position:relative;display:flex;flex-direction:column;align-items:center;gap:5px;
+  padding:9px 4px;background:var(--s3);border:1px solid var(--border);border-radius:7px;
+  color:var(--text);font-family:var(--mono);cursor:pointer;text-align:center;
+  transition:border-color .15s,background .15s;min-width:0; /* same grid-shrink fix as .bpmn-pal-tile.grid */
 }
 .bpmn-pal-edge-type-option:hover:not(:disabled){border-color:var(--edge-type-color);background:var(--s4)}
-.bpmn-pal-edge-type-option:hover:not(:disabled)::before{opacity:.8}
-/* Text hover-highlight — matches .bpmn-pal-tile:hover's convention (every
-   interactive element's text turns --a3 blue on hover, not just its
-   border/background), extended here since this option's own :hover rule
-   above never touched color, leaving the hint text pale even on hover. */
-.bpmn-pal-edge-type-option:hover:not(:disabled) .bpmn-pal-edge-type-label,
-.bpmn-pal-edge-type-option:hover:not(:disabled) .bpmn-pal-edge-type-hint{color:var(--a3)}
+.bpmn-pal-edge-type-option:hover:not(:disabled) .bpmn-pal-tile-label{color:var(--a3)}
 .bpmn-pal-edge-type-option.active{border-color:var(--edge-type-color);background:color-mix(in srgb, var(--edge-type-color) 12%, var(--s3))}
-.bpmn-pal-edge-type-option.active::before{opacity:1}
 .bpmn-pal-edge-type-option:disabled{opacity:.45;cursor:not-allowed}
 .bpmn-pal-edge-type-option svg{flex-shrink:0;color:var(--edge-type-color)}
-.bpmn-pal-edge-type-text{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
-.bpmn-pal-edge-type-label{font-size:10.5px;font-weight:600;display:flex;align-items:center;gap:6px;white-space:nowrap}
-/* --mid2, not --dim: --dim measured ~1.4:1 against this card's real --s3
-   background via getComputedStyle — effectively illegible, not just a
-   guideline miss. --mid2 measures ~5.0:1 here. */
-.bpmn-pal-edge-type-hint{font-size:8.5px;color:var(--mid2);line-height:1.35}
-.bpmn-pal-edge-type-loading{font-size:8px;color:var(--gold);font-weight:500}
-/* Radio dot — filled center only appears on .active, echoing the left
-   accent bar and background tint so "this is the current default" reads
-   three ways at once, not just one. */
+.bpmn-pal-edge-type-option .bpmn-pal-tile-label{white-space:normal;line-height:1.25}
+.bpmn-pal-edge-type-loading{display:block;font-size:7px;color:var(--gold);font-weight:500}
+/* Radio-dot badge — corner overlay instead of the old trailing-dot-in-a-row
+   position, since the tile is vertical now. Filled center only on .active. */
 .bpmn-pal-edge-type-check{
-  width:13px;height:13px;border-radius:50%;flex-shrink:0;
-  border:1.5px solid var(--edge-type-color);opacity:.5;
-  display:flex;align-items:center;justify-content:center;transition:opacity .15s;
+  position:absolute;top:4px;right:4px;width:9px;height:9px;border-radius:50%;
+  border:1.5px solid var(--edge-type-color);opacity:.5;transition:opacity .15s;
 }
-.bpmn-pal-edge-type-check::after{content:'';width:6px;height:6px;border-radius:50%;background:var(--edge-type-color);transform:scale(0);transition:transform .15s}
+.bpmn-pal-edge-type-check::after{content:'';position:absolute;inset:1.5px;border-radius:50%;background:var(--edge-type-color);transform:scale(0);transition:transform .15s}
 .bpmn-pal-edge-type-option.active .bpmn-pal-edge-type-check{opacity:1}
 .bpmn-pal-edge-type-option.active .bpmn-pal-edge-type-check::after{transform:scale(1)}
+/* Shared description line — see the big comment above for why this exists
+   instead of a per-card hint or a hover-only tooltip. min-height reserves
+   space for the longest hint at this font size/width so the grid below it
+   doesn't shift up and down as the shown text's line count changes. */
+.bpmn-pal-edge-type-desc{font-size:8.5px;color:var(--mid2);line-height:1.4;padding:3px 2px 0;min-height:2.8em}
 .bpmn-pal-edge-type-note{display:flex;align-items:flex-start;gap:6px;padding:1px 2px 0;color:var(--dim);font-size:8.5px;line-height:1.4}
 .bpmn-pal-edge-type-note svg{flex-shrink:0;margin-top:1px;opacity:.6}
 
@@ -812,6 +883,12 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
   transition:all .15s;box-shadow:0 2px 6px rgba(0,0,0,.35);margin-bottom:2px;
 }
 .bpmn-pal-nudge:hover{color:var(--a3);border-color:var(--a2);background:linear-gradient(180deg,var(--s4),var(--s3))}
+/* Advanced rail toggle's pressed/open state (2026-08-22) — same active
+   convention as .bpmn-pal-toggle.active elsewhere in this palette. The
+   chevron's own rotate-on-open behavior is already covered by
+   .bpmn-pal-advanced-chevron.open (shared with the expanded panel's
+   toggle), so nothing extra is needed for it here. */
+.bpmn-pal-nudge.active{color:var(--a3);border-color:var(--a2);background:rgba(74,159,255,.12)}
 .bpmn-pal-rail-group{display:flex;flex-direction:column;align-items:center;gap:4px;width:100%}
 .bpmn-pal-rail-divider{width:24px;height:1px;background:var(--border);margin:4px 0}
 .bpmn-pal-tile.compact{width:32px;height:32px;padding:0;justify-content:center}
@@ -912,7 +989,12 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
 }
 .bpmn-node-inspector{display:flex;flex-direction:column;gap:5px;padding:7px;border-top:1px solid var(--border);min-width:200px}
 .bpmn-node-inspector-row{display:flex;align-items:center;gap:8px;font-size:9.5px}
-.bpmn-node-inspector-row>span{width:34px;flex-shrink:0;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;font-size:8px}
+/* --mid2, not --dim: --dim measured ~1.4:1 against this row's real
+   background (var(--s3), the floating node-toolbar's own bg) via
+   getComputedStyle — the same catastrophic-contrast bug already found
+   and fixed on the edge-type picker's hint text, just never checked
+   here until this pass. --mid2 measures ~5:1 on the same background. */
+.bpmn-node-inspector-row>span{width:34px;flex-shrink:0;color:var(--mid2);text-transform:uppercase;letter-spacing:.5px;font-size:8px}
 .bpmn-node-inspector-row code{color:var(--a3);font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bpmn-node-inspector-row input{flex:1;padding:3px 6px;background:var(--s2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--mono);font-size:10px}
 .bpmn-node-inspector-row input:focus{outline:none;border-color:var(--a2)}
@@ -1029,12 +1111,30 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
 }
 /* Same hover-lift language gateways already had — Task/Start/End were the
    one node family with zero hover feedback on the body itself (only their
-   handles reacted), which read as inert next to gateways/pools. */
-.react-flow__node-default:hover,
-.react-flow__node-input:hover,
-.react-flow__node-output:hover{
-  transform:translateY(-1px);
-  box-shadow:0 8px 18px rgba(0,0,0,.5);
+   handles reacted), which read as inert next to gateways/pools.
+   REAL BUG found and fixed 2026-08-22: this rule never actually applied.
+   xyflow's own base.css carries a two-class-plus-pseudo hover rule for
+   these same node classes (react-flow__node-default.selectable:hover
+   and siblings, confirmed directly in node_modules), which beats this
+   rule's one-class-plus-pseudo on pure specificity. getComputedStyle()
+   on a really-hovered node showed the library's own faint default
+   shadow the entire time, never this one — same class of bug as the
+   minimap fix earlier (a more-specific library rule silently winning),
+   just discovered on a different element. Fixed by matching the
+   .selectable class and adding !important, the exact same pattern this
+   file's own .selected-state override below already uses for the
+   identical reason. transform:translateY(-1px) is dropped entirely, not
+   just re-specificity-fixed: React Flow sets this node's own position
+   via an INLINE transform (translate(x,y)), which any plain CSS rule —
+   !important or not — cannot compose with; forcing it would have
+   discarded the node's real x/y and snapped it to the inline's other
+   translate origin. Confirmed via getComputedStyle that the hover
+   transform was already silently doing nothing (not broken by this fix,
+   already broken before it) — box-shadow is the whole real effect. */
+.react-flow__node-default.selectable:hover,
+.react-flow__node-input.selectable:hover,
+.react-flow__node-output.selectable:hover{
+  box-shadow:0 8px 18px rgba(0,0,0,.5) !important;
 }
 /* React Flow's own default selected state is a 0.5px near-black outline —
    correct for a light canvas, effectively invisible against this one's dark

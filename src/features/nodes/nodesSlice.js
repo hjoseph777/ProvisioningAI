@@ -206,6 +206,29 @@ export const createNodesSlice = (set, get) => ({
     return id;
   },
 
+  // Task subtypes (2026-08-22, Category A per progress.md's BPMN-
+  // completeness audit) — Service/User/Script/Business-Rule/Send/Receive
+  // Task were already fully supported before this action existed:
+  // TaskNode.jsx's TASK_TYPE_ICON/TASK_TYPE_LABEL already render the
+  // right icon+tooltip for each bpmn:* type string, and bpmnModdle.js's
+  // generic bpmnTypeForNode() fallback already exports whatever bpmnType
+  // is set — the exact same mechanism addSubProcess above already proved
+  // out for Call Activity. This is one generic action instead of six
+  // near-duplicate ones, unlike addSubProcess's own dedicated function,
+  // because there's no CallActivity-style className/visual treatment
+  // needed here — every subtype renders as a plain Task shape, only the
+  // icon differs, so a single parameterized action is the correct
+  // minimum, not six copies of the same four lines.
+  addTaskSubtype: (bpmnType, label, position = DEFAULT_SPAWN_POSITION) => {
+    get().takeSnapshot();
+    const id = makeId();
+    set(s => {
+      const spawn = findFreeSpawnPosition(s.nodes, position);
+      return { nodes: [...s.nodes, { id, position: spawn, data: { label, bpmnType } }] };
+    });
+    return id;
+  },
+
   // Stage 1 (React Flow Pro enhancements) — a single container, per
   // parent-child-relation-pro-example's own actual scope (no multi-lane
   // subdivision exists there to copy, so none is invented here). 420x260 is

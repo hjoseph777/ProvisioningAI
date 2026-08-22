@@ -2563,6 +2563,182 @@ All three object types confirmed working, so per the operator's own decision tre
 
 ---
 
+## Zoom In/Out combined into one stacked control (2026-08-22, follow-up)
+
+Toolbar's separate `＋`/`－` zoom buttons replaced with one `.bpmn-zoom-stack` control — `＋` on top, `－` on bottom, thin divider between, same outer chrome as the rest of the toolbar's buttons. Underlying `zoomIn()`/`zoomOut()` calls unchanged, just wired to the two halves of one visual unit instead of two separate `.xb` buttons. Verified live: one DOM control containing exactly 2 buttons in `flex-direction: column` order (＋ above, － below); clicking each half moves React Flow's real viewport `scale()` in the correct direction (0.5 → 0.6 on ＋, decreasing on －). `npm run build` clean, zero console errors.
+
+---
+
+## Palette redesign: reference-driven grid layout, 175px width, compact Connectors with shared description line (2026-08-22, follow-up)
+
+Operator supplied a reference mockup (annotated screenshot of the current palette + a separate clean-mockup image) asking for a further width reduction and an icon-top/label-below grid layout, explicit that only the *structure* should be followed — this app's own dark palette/lucide icons stay, not the reference's literal colors/placeholder blocks.
+
+**Pre-implementation research, reported back before touching code, per the operator's explicit gate:**
+- **Sub-Process/CallActivity:** found the palette's "Sub-Process" tile has never been documented as tested anywhere in progress.md/CLAUDE.md/skills.md — a real gap. Verified live before deciding whether to keep it in the redesign: clicked the tile, confirmed the new node carries `bpmn-node-callactivity`, exported via the real Export menu, and read the actual downloaded `.bpmn` file — found `<bpmn:callActivity id="Node_5tw5msn" name="New process" />`, with the export toast reading `"Exported — 0 schema warnings"`. Real, working, schema-valid, just never previously verified. Operator decided to keep the current "Sub-Process" label as-is (not rename to "Call Activity") — a real, on-the-record naming decision, not silent.
+- **Connectors' hover-only risk:** the operator flagged that compressing the edge-type picker into an icon grid (matching the reference) must not make its description hover-only, since that description exists specifically because "which renderer a whole new edge gets" is a consequential choice. Resolution, confirmed with the operator before building: keep the compact 3-icon grid, add ONE shared description line below it that shows whichever option is hovered/focused, falling back to the currently *selected* option at rest — never blank, never hover-only.
+
+**Built:**
+- `Tile` (`BpmnPalette.jsx`) gained a `grid` variant — icon on top (17px, up from 15px), label below, wrapping allowed.
+- Events/Activities/Gateways/Containers now render through `.bpmn-pal-tiles-grid` (CSS `grid-template-columns:repeat(auto-fit,minmax(64px,1fr))`) instead of the old full-width row list.
+- Connectors' edge-type picker rebuilt from vertical stacked cards into a compact `.bpmn-pal-edge-type-grid` (same auto-fit/minmax pattern) plus a new `.bpmn-pal-edge-type-desc` line below it, driven by a new `hoveredEdgeType` local state (`onMouseEnter`/`onMouseLeave`/`onFocus`/`onBlur` on each option) that falls back to `defaultEdgeType` when nothing is hovered/focused.
+
+**A real bug found and fixed mid-implementation, not just eyeballed:** the first grid pass showed a constant 234px horizontal overflow on the sidebar body *regardless of what width the container was set to* — a classic CSS Grid trap: grid items default to `min-width:auto` (= their longest unbreakable word's intrinsic width), which silently floors the whole grid's real width no matter how narrow the container is. Fixed with `min-width:0` on `.bpmn-pal-tile.grid` and `.bpmn-pal-edge-type-option`.
+
+**A second real bug found via screenshot, not just the numbers:** with `min-width:0` alone, narrow columns forced `word-break:break-word` (added to allow wrapping) to split words anywhere, producing genuinely ugly mid-word breaks — "Exclu"/"sive", "Paral"/"lel" — since these BPMN gateway names have no natural hyphen/space to wrap at. Fixed by removing `word-break:break-word` entirely and instead sizing `minmax(64px,1fr)` — measured as the real minimum that keeps this app's longest single-word labels on one line — so columns never get narrow enough to need a mid-word break in the first place.
+
+**A third real gap caught before finalizing the width:** an overflow-only check said everything was fine all the way down to 130px — technically true, but only because `auto-fit` was silently collapsing every category to **1 column** below 160px (padding + the sidebar's own scrollbar eat into the raw minmax math more than the bare arithmetic suggests), which is a full-width row-list, i.e. a regression back toward the pre-redesign layout that "zero overflow" alone would never have caught. Caught by measuring actual rendered **column count** per category at each width, not just overflow — the same category of lesson as the minimap bug earlier this session (a metric that looks clean can still hide the real regression; measure the thing that actually matters, not a proxy for it).
+
+**Final width: 175px** (was 200px, then 240px before that) — chosen with a safety margin above the exact 155→160px collapse cliff, giving every category a real 2-column grid (Gateways/Connectors settle into a clean 2+1 layout — three items never fit 3-wide at any width narrow enough to be worth using) with zero truncation, zero overflow, zero mid-word breaks.
+
+**Verified live, full pass:**
+- Collapsed width: `44px`, unaffected.
+- Expanded width: `175px`, confirmed via real CSS (fresh reload, no inline override) — matches the number actually shipped, not just the tested candidate.
+- Zero horizontal overflow on the palette body.
+- **Drag-to-add, all 8 real palette items** (Start, End, Task, Sub-Process, Exclusive, Inclusive, Parallel, Pool) — real `page.mouse` drag simulation, not `.click()`. First pass showed Pool failing (0/1); root-caused as a **test bug, not a product bug**: Pool sits far down the now-more-compact grid, past the 429px-tall headless viewport, so the drag's mouse-down landed off-screen (`page.mouse` needs the element actually visible, unlike `element.click()`, which works regardless of scroll position — same category of gotcha this project has hit before with drag tests). Fixed by scrolling the target into view before computing drag coordinates; re-ran, 8/8 pass.
+- **Edge-type picker + shared description line:** at rest, the description reads `"Standard sequence flow line"` (Default's hint, since Default is the active selection) — confirmed real hover (`page.mouse.move`, not synthetic) over "Editable" swaps it to `"Drag points to reshape the line"`, moving the mouse away reverts it back to the active option's hint (never blank throughout), and clicking "Editable" both sets it `.active` and updates the at-rest description to match.
+- **Undo/redo:** re-verified via the real current entry point (keyboard Ctrl+Z/Ctrl+Shift+Z — the toolbar buttons were removed earlier this session) — 6→7→6→7, correct in both directions. (A first regression pass referenced the old toolbar button's title, which no longer exists; caught and re-run with the right entry point rather than reported as a false regression.)
+- **Minimap:** 4 distinct real computed colors, unaffected.
+- **Export:** JSON toast `"Saved — 7 elements"`, BPMN XML toast `"Exported — 0 schema warnings"`.
+- **Zero console errors or page errors** across every step of this pass. `npm run build` clean throughout.
+
+---
+
+## Palette: "Advanced" section scaffold added — structural placeholder only, no new BPMN types (2026-08-22, follow-up)
+
+Operator explicit: this is a UI scaffold, not an implementation pass — none of the additional BPMN element types discussed get built here.
+
+**Built:** a new collapsed-by-default `.bpmn-pal-group` at the bottom of the palette's category list (`BpmnPalette.jsx`), toggled via a new `.bpmn-pal-advanced-toggle` button (chevron + "Advanced" label, reusing `.bpmn-pal-group-lbl` so the text matches every other category heading, and Command Center's own existing chevron-rotate convention rather than inventing a new expand/collapse visual language). Local `advancedOpen` state, same category as `hoveredEdgeType` above it — a pure display concern, not app-wide data. When expanded, shows exactly one disabled placeholder tile (`MoreHorizontal` icon, "More elements coming soon" label, `title` spelling out that it covers the full deferred list below) inside the same `.bpmn-pal-tiles-grid` every real category already uses — so a real element dropped in later is a straightforward addition to the same structure, not a rebuild. No new node types, store actions, or `bpmnModdle.js` export mapping were touched.
+
+**Verified live:** collapsed by default (`aria-expanded="false"` on load, placeholder not present in the DOM); toggling shows `aria-expanded="true"` and the placeholder tile (`disabled: true`, label reads exactly "More elements coming soon"); toggling again collapses it and the placeholder is removed from the DOM again (not just hidden). Existing categories unaffected — spot-checked Task click-to-add still works (6→7 nodes) after exercising the toggle. Zero console errors. Screenshots taken in both collapsed and expanded states. `npm run build` clean.
+
+**Deferred BPMN-completeness backlog — logged here explicitly, same treatment as collaboration/server-image-export/libavoid-routing's own deferred-tracker entries elsewhere in this project: tracked, not started, not silently reopened.**
+
+| Category | Elements | 
+|---|---|
+| Events | Intermediate Events (Timer, Message, Signal, Error), Boundary Events, Throwing Events, Multiple/Parallel Multiple Events |
+| Activities | User Task, Send Task, Receive Task, Service Task, Script Task, Business Rule Task, Transaction |
+| Gateways | Event-Based Gateway, Complex Gateway |
+| Data/Artifacts | Data Objects, Data Stores, Text Annotations, Association Connectors |
+| Structure | Lanes (nested inside Pools) |
+
+None of these have a palette entry. **SUPERSEDED — audited the same day, see the next entry below**: whether any are already partially supported internally is no longer an open question.
+
+---
+
+## BPMN-completeness audit — categorized findings, no implementation (2026-08-22, same day, operator-requested)
+
+Operator explicit: report only, do not implement. Read `EventNode.jsx`, `TaskNode.jsx`, `GatewayNode.jsx`, and `bpmnModdle.js`'s export/import mapping directly, plus a full-source grep for `DataObject`/`DataStore`/`TextAnnotation`/`bpmn:Association`/`Lane` (zero hits — confirmed none of those exist in any form, not even a partial data field).
+
+**Real finding: 6 of the 7 requested Activity subtypes already work internally.** `TaskNode.jsx`'s `TASK_TYPE_ICON`/`TASK_TYPE_LABEL` already list `bpmn:ServiceTask`/`UserTask`/`ScriptTask`/`ManualTask`/`BusinessRuleTask`/`SendTask`/`ReceiveTask` — icon + tooltip fully wired, and `bpmnModdle.js`'s generic `bpmnTypeForNode()` fallback (the same mechanism that already made Sub-Process/CallActivity work) exports whatever `bpmnType` is set with no per-type special-casing needed. Exposing any of these six is the identical cheap pattern as Sub-Process was: a palette tile setting a different `data.bpmnType` string on the existing generic Task node — genuinely Category A, not a new build.
+
+**Full categorized list** (A = palette entry only, reuses an already-working pattern; B = moderate, reuses an existing component/mechanism but needs a new node type or a real data-shape change; C = structurally new, nothing built so far resembles it):
+
+| Element | Category | Basis |
+|---|---|---|
+| Service/User/Script/Manual/Business Rule/Send/Receive Task | **A** | Already in `TaskNode.jsx`'s type maps; generic export fallback already handles them. **DONE (2026-08-22, same day):** User/Service/Script/Business-Rule/Send/Receive Task (6 of the 7 — the audit's own original ask, not counting the bonus Manual Task flag) now have real palette tiles, verified per-subtype against actual exported XML — see the matching "Palette Part 1" entry below. Manual Task remains internal-only, not exposed, since it wasn't part of the confirmed 6. |
+| Intermediate Event (Message/Timer) | **B** | `eventDefinition` data + export mapping already work; needs a new node *type* (no Intermediate node exists — only Start/End) |
+| Intermediate Event (Signal/Error) | **B** | Same new-node-type cost, plus 2 new `EVENT_DEF_TO_BPMN` entries |
+| Multiple/Parallel Multiple Events | **B** | `data.eventDefinition` is a single string, not an array — real data-shape change, not just a new value |
+| Event-Based/Complex Gateway | **B** | Same `GatewayNode.jsx` component/diamond shape, just a new `gatewayType` glyph + export-mapping entry — this app enforces no real gateway execution semantics anywhere, so Event-Based's usual behavioral requirement isn't a constraint here |
+| Boundary Events | **C** | Attaches to a Task's edge/boundary — nothing in this codebase attaches one node to another's boundary |
+| Throwing Events | **C** | No Intermediate Event concept exists yet to hang a throw/catch flag on |
+| Transaction | **C**, misfiled as an Activity | Actually a `bpmn:SubProcess` subtype in real BPMN, not a Task variant — inherits the nested-container problem already flagged for Sub-Process (no data model for nested child flow content) |
+| Data Objects, Data Stores, Text Annotations | **C** | Confirmed via grep: zero non-flow-connected artifact concept exists anywhere |
+| Association Connectors | **C** | Only `bpmn:SequenceFlow` is ever created/read in `bpmnModdle.js` |
+| Lanes | **C** | `PoolNode.jsx` is a single flat container, one label strip — no sub-region/lane concept, only flat `parentId` child membership |
+
+Rollup: 7 items A, 5 items B, 8 items C (counting Transaction as its own row per the misfile note above). No code touched for this audit.
+
+---
+
+## Palette: "Advanced" show/hide added to the collapsed icon-only rail too, sharing state with the expanded panel's toggle (2026-08-22, same day)
+
+Operator: the collapsed (44px, far-left) rail — not just the expanded 175px panel — should also get a show/hide for the Advanced placeholder, icon-only.
+
+**Built:** a new `.bpmn-pal-nudge` toggle button appended after the existing category icons in `.bpmn-pal-rail` (`BpmnPalette.jsx`), using the exact same `advancedOpen` local state as the expanded panel's own Advanced toggle — expanding it in one view carries over to the other, rather than tracking two independent open/closed states for what's conceptually one section. When open, renders the same disabled `MoreHorizontal` "More elements coming soon" placeholder `Tile`, just in `compact` (icon-only, no label) form, matching every other rail tile. New `.bpmn-pal-nudge.active` CSS for the toggle's pressed/open state (reuses `.bpmn-pal-toggle.active`'s existing color convention) — the chevron's own rotate-on-open animation was already covered by the shared `.bpmn-pal-advanced-chevron.open` rule, no duplicate CSS needed.
+
+**Verified live:** rail width unaffected (`44px`); toggle hidden→shown→hidden correctly removes/adds the placeholder tile from the DOM each time (not just visibility-hidden); toggle gets `.active` styling when open; existing rail tiles unaffected (spot-checked Task click-to-add, 6→7 nodes, after exercising the new toggle); **shared-state sync confirmed** — opening the Advanced section via the rail toggle, then switching to the expanded panel, shows it already `aria-expanded="true"` there too, no separate click needed. Screenshots taken of both toggle states; the placeholder tile itself sits below the short headless test viewport, so a scrolled screenshot was taken to actually see it rendered (dimmed disabled styling, `···` icon) rather than just trusting the DOM check. Zero console errors. `npm run build` clean.
+
+---
+
+## Palette Part 1: real palette tiles for all 6 Category A Activity subtypes — User/Service/Script/Business-Rule/Send/Receive Task (2026-08-22, same day)
+
+Operator scoped this precisely: only the 6 subtypes confirmed Category A in the audit above (already fully wired via `TaskNode.jsx`'s `data.bpmnType` icon/tooltip lookup and `bpmnModdle.js`'s generic export fallback), nothing from Events/Gateways/Data-Artifacts — adding an icon there without the underlying support would create nodes that don't export correctly.
+
+**Built:** one generic `addTaskSubtype(bpmnType, label, position)` action in `nodesSlice.js` — deliberately not six near-duplicate functions like `addSubProcess`'s own dedicated one, since none of these six need a special className/visual treatment the way Call Activity's double-bar marker did; every subtype renders as a plain Task shape, only the icon differs. Wired through `BpmnCanvas.jsx`'s `onDrop` (`kind: 'taskSubtype'`, mirroring the existing `gateway`/`gatewayType` pattern) and passed to `BpmnPalette.jsx` as `onAddTaskSubtype`. Six new items appended to the Activities category, each using the *exact same* icon `TaskNode.jsx` already renders for that `bpmnType` (`User`/`Settings`/`Code2`/`ListChecks`/`Send`/`Inbox` — not reinvented) so the palette tile previews the real node's own icon. The category-boundary comment above the categories array (previously "Activities stops at Task (generic)... this palette must not quietly reopen that line") was updated to record the extension explicitly, scoped to these 6 audit-confirmed types only — not a general loosening of that boundary.
+
+**Verified live, per subtype, real evidence not just toasts:**
+
+| Subtype | Click-to-add | Real exported XML (from the actual downloaded `.bpmn` file) |
+|---|---|---|
+| User Task | 6→7 nodes | `<bpmn:userTask id="Node_lxozc90" name="User Task" />` |
+| Service Task | 6→7 nodes | `<bpmn:serviceTask id="Node_7n3fulm" name="Service Task" />` |
+| Script Task | 6→7 nodes | `<bpmn:scriptTask id="Node_8iqlkwm" name="Script Task" />` |
+| Business Rule Task | 6→7 nodes | `<bpmn:businessRuleTask id="Node_k69yqi9" name="Business Rule Task" />` |
+| Send Task | 6→7 nodes | `<bpmn:sendTask id="Node_dmfb1ik" name="Send Task" />` |
+| Receive Task | 6→7 nodes | `<bpmn:receiveTask id="Node_h8cemm9" name="Receive Task" />` |
+
+All six exports completed with the toast `"Exported — 0 schema warnings"` — schema-valid, not just "didn't throw." (First capture attempt returned `downloadedFile: null` for all six — a real `page.on('download')` listener registered once before a `page.reload()` loop stopped firing after the first navigation; fixed by registering `page.waitForEvent('download')` fresh inside each iteration, then re-ran and got all six real files.)
+
+**Full regression:** undo/redo via keyboard (6→7→6→7, correct both directions); Save/Load JSON round trip (export toast `"Saved — 7 elements"`, Reset, import via the real hidden file input, import toast `"Loaded from file"`, node count correctly restored to 7); Advanced-toggle placeholder still opens correctly and still reads "More elements coming soon"; minimap still shows 4 distinct real computed colors. Zero console errors or page errors across the entire pass. Screenshot of the updated Activities section on file. `npm run build` clean.
+
+---
+
+## Palette Part 2: 12 non-functional placeholder tiles for the still-deferred BPMN backlog — 6 visible, 6 hidden under Advanced (2026-08-22, same day)
+
+Operator proposal round confirmed before building anything (per explicit instruction) — 6 picked for real-world frequency plus relevance to this project's own invoice/document-routing domain, placed directly in their real BPMN category rather than hidden; the remaining 6, more niche/complex, placed icon-only inside the existing Advanced section instead.
+
+**Visible 6** (each a disabled `Tile` with no `onClick`/`dragPayload`, in its real BPMN category):
+- Events: Timer Event (`Clock`), Message Event (`Mail`), Boundary Event (`CircleDot`)
+- Containers: Lanes (`Rows2`, alongside Pool)
+- **New category, "Data/Artifacts"** (didn't fit any existing category — real BPMN palettes group these separately too): Data Object (`FileText`), Text Annotation (`StickyNote`)
+
+**Hidden 6** (icon-only — "small icon only" per operator instruction — inside the expanded panel's Advanced section only, not the collapsed rail's own Advanced toggle, which keeps its original single generic placeholder unchanged): Signal Event (`Radio`), Error Event (`Zap`), Multiple Event (`Asterisk`), Event-Based Gateway (`Hexagon`), Complex Gateway (`GitBranch`), Data Store (`Database`) — new `.bpmn-pal-tiles-compact-grid` (flex-wrap, not the 64px-track CSS grid the visible categories use, since these are 32px `.bpmn-pal-tile.compact` tiles and would leave large gaps in that grid) plus a new `.bpmn-pal-advanced-caption` line ("More BPMN element types — planned, not yet built") so the section reads as intentional even with no per-tile label text.
+
+Every one of the 12 icons matches TaskNode.jsx/EventNode.jsx's own real icon choices where a real one already exists (`Clock`/`Mail` mirror `EventNode.jsx`'s existing `message`/`timer` icons exactly) or a clear semantic pick otherwise — all 12 icon names confirmed to actually exist in this project's installed `lucide-react` before use (`node -e` require-check), not guessed.
+
+**Verified live, real interaction, not just DOM presence:**
+- All 6 visible placeholders: found, `disabled: true`, `draggable: false`.
+- Clicking a visible placeholder (Data Object) does **not** create a node — node count unchanged (6→6), confirming non-functional, not just visually dimmed.
+- All 6 hidden placeholders: found inside the opened Advanced section, `disabled: true`, and confirmed **no label element rendered at all** (`hasLabelText: false`, not just CSS-hidden) — genuinely icon-only.
+- Clicking a hidden placeholder (Data Store) also does not create a node (6→6).
+- Screenshots taken of the visible-category tiles, the artifacts category, and the expanded Advanced section's compact icon grid — all read as clearly dimmed/disabled against the bright functional tiles beside them (Start/End vs. Timer/Message/Boundary; Pool vs. Lanes).
+- Full regression re-run: undo/redo (6→7→6→7), Save/Load JSON round trip, minimap (4 distinct colors) — all unaffected. Zero console errors across the entire pass. `npm run build` clean.
+
+**SUPERSEDED same day, see the next entry below** — the visible/hidden 6-and-6 split above was reorganized into "all 12 under Advanced" per a follow-up operator instruction.
+
+---
+
+## Palette: all 12 placeholders consolidated under Advanced, grouped by BPMN category (2026-08-22, same day, later)
+
+Operator, after confirming the 6-visible/6-hidden split worked correctly: give the *original* (already-functional) tiles precedence in the always-visible palette area since they're what actually gets used, and move every placeholder — the 6 that had been directly visible in Events/Containers/Data-Artifacts, plus the 6 already under Advanced — into Advanced together, organized into real BPMN sub-categories rather than one flat row, still icon-only.
+
+**Built:** replaced the three separate flat arrays (`PLACEHOLDER_EVENTS`/`PLACEHOLDER_CONTAINERS`/`PLACEHOLDER_ARTIFACTS`) and the single flat `PLACEHOLDER_ADVANCED` with one `ADVANCED_PLACEHOLDER_GROUPS` structure — 4 sub-groups (Events: Timer/Message/Boundary/Signal/Error/Multiple = 6, Gateways: Event-Based/Complex = 2, Data/Artifacts: Data Object/Text Annotation/Data Store = 3, Containers: Lanes = 1), rendered under Advanced with a new `.bpmn-pal-advanced-subgroup`/`.bpmn-pal-advanced-subgroup-lbl` sub-heading (smaller/dimmer than the top-level `.bpmn-pal-group-lbl`, so the nesting reads clearly rather than looking like a fifth peer category). Removed the `...PLACEHOLDER_EVENTS`/`...PLACEHOLDER_CONTAINERS` spreads from Events/Containers, and removed the "Data/Artifacts" top-level category entirely (it only ever held placeholders, now consolidated). The collapsed rail's own Advanced toggle was left untouched, still showing its original single generic placeholder — this instruction was scoped to the expanded panel, matching the same scoping the prior split itself used.
+
+**Verified live:**
+- Events category now shows exactly `["Start", "End"]` — no placeholder tiles.
+- Containers now shows exactly `["Pool"]` — Lanes placeholder removed.
+- The "Data/Artifacts" top-level category no longer exists in the DOM at all.
+- Advanced, opened: exactly 4 sub-groups (Events: 6 items, Gateways: 2, Data/Artifacts: 3, Containers: 1 — 12 total), every tile confirmed `disabled: true`.
+- Regression: a Part 1 functional tile (Service Task) still creates a real node (6→7); keyboard undo still reverts it (7→6); minimap still shows 4 distinct real computed colors. Zero console errors. `npm run build` clean.
+- Screenshots: top-level palette now shows only genuinely usable elements (Events/Activities/Gateways all bright, no dimmed tiles mixed in); Advanced expanded shows all 12 placeholders cleanly organized into their 4 labeled sub-groups.
+
+---
+
+## GUI polish pass, three real bugs found and fixed (not just cosmetic tweaks) (2026-08-22, follow-up)
+
+Operator asked for general look-and-feel suggestions; agreed to 3, investigated each live before touching anything (same discipline as the rest of this session) rather than assuming what was broken.
+
+**1. Task/Start/End node hover-lift silently never worked — a real, pre-existing bug, not something this pass introduced.** Live-tested via `getComputedStyle()` on a genuinely-hovered node (`page.mouse.move`, not synthetic): the intended `box-shadow:0 8px 18px rgba(0,0,0,.5)` on hover was never applied — the computed value stayed at `@xyflow/react`'s own faint default (`rgba(0,0,0,0.08) 0px 1px 4px 1px`) the whole time. Root cause, confirmed by reading `node_modules/@xyflow/react/dist/style.css` directly: the library's own base CSS carries a two-class-plus-pseudo hover rule for these same node classes, beating this app's one-class-plus-pseudo rule on pure specificity — the exact same category of bug as the minimap CSS-cascade fix earlier this session, just on a different element, never previously checked. Fixed by matching the `.selectable` class and adding `!important`, the identical pattern this file's own `.selected`-state override already used for the same reason. The rule's `transform:translateY(-1px)` was dropped entirely rather than fixed: React Flow sets this node's real position via an inline `transform:translate(x,y)`, which no CSS rule (important or not) can compose with — forcing it would have discarded the node's actual x/y placement. Confirmed via `getComputedStyle` that the transform was already silently doing nothing before this fix too (not a regression, a pre-existing dead rule). Re-verified after the fix: hover box-shadow now reads exactly `rgba(0, 0, 0, 0.5) 0px 8px 18px 0px`, matching the intended value precisely.
+
+**2. Node inspector's field labels (ID, TYPE, etc.) had the same catastrophic contrast bug already found and fixed on the edge-type picker's hint text — just never checked here.** `color:var(--dim)` against the inspector's real background (`--s3`) measured the same ~1.4:1 the edge-type hint did before its own fix. Fixed with the same `--mid2` token already introduced earlier this session. Re-verified: computed color now `rgb(110, 144, 190)` (`--mid2`), exactly matching the earlier fix's value.
+
+**3. Toolbar overflow — "⋯ More" toggle for History/Shortcuts.** These two were the main reason the toolbar wrapped to a second row at common widths; moved behind a toggle using the same show/hide pattern the palette's own Advanced section already established (not a nested dropdown-of-dropdowns, which would have risked confusing mouseleave/click-outside behavior between History's/Shortcuts' own existing dropdowns and an outer one). Verified live: both hidden by default, both revealed on toggle, History's own dropdown still opens and functions correctly once revealed, collapses cleanly again. Screenshot confirms the toolbar now defaults to a visibly cleaner state (Reset alone on row 2, vs. multiple items wrapping before).
+
+**Full regression after all three:** a real node add/undo (6→7→6), minimap (4 distinct colors), zero console errors throughout. `npm run build` clean.
+
+---
+
 ## Executive Summary
 
 | Metric | Value | Target |

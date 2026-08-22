@@ -108,6 +108,7 @@ function BpmnFlow() {
   const setNodes = useBpmnStore(s => s.setNodes);
   const addTask = useBpmnStore(s => s.addTask);
   const addSubProcess = useBpmnStore(s => s.addSubProcess);
+  const addTaskSubtype = useBpmnStore(s => s.addTaskSubtype);
   const addStart = useBpmnStore(s => s.addStart);
   const addEnd = useBpmnStore(s => s.addEnd);
   const addGateway = useBpmnStore(s => s.addGateway);
@@ -189,6 +190,16 @@ function BpmnFlow() {
   const [snapshots, setSnapshots] = useState([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // Toolbar overflow (2026-08-22, GUI polish pass) — History and Shortcuts
+  // are the least-frequently-needed pair (manual snapshots, a reference
+  // panel) and were the main reason the toolbar wrapped to a second row at
+  // some widths. Same toggle-to-reveal pattern as the palette's own
+  // Advanced section, not a floating dropdown-of-dropdowns — History and
+  // Shortcuts each already own a real dropdown, and nesting one inside
+  // another risked confusing mouseleave/click-outside behavior between
+  // the two layers for no real benefit over just hiding the buttons
+  // in-place until asked for.
+  const [toolbarMoreOpen, setToolbarMoreOpen] = useState(false);
   // Unified Export/Import menus (2026-08-22 UX pass, operator's "Item B") —
   // one dropdown per direction replacing the previous 4 separate buttons
   // (Export BPMN / Import BPMN / Save / Load). Same open/close pattern as
@@ -294,10 +305,11 @@ function BpmnFlow() {
     if (item.kind === 'gateway') addGateway(item.gatewayType, position);
     else if (item.kind === 'task') addTask(position);
     else if (item.kind === 'subprocess') addSubProcess(position);
+    else if (item.kind === 'taskSubtype') addTaskSubtype(item.bpmnType, item.label, position);
     else if (item.kind === 'start') addStart(position);
     else if (item.kind === 'end') addEnd(position);
     else if (item.kind === 'pool') addPool(position);
-  }, [screenToFlowPosition, addGateway, addTask, addSubProcess, addStart, addEnd, addPool]);
+  }, [screenToFlowPosition, addGateway, addTask, addSubProcess, addTaskSubtype, addStart, addEnd, addPool]);
 
   // Smart alignment guides (Phase D) — wraps the store's own onNodesChange
   // rather than replacing it. Only a genuine single-node drag-in-progress is
@@ -751,6 +763,7 @@ function BpmnFlow() {
         <BpmnPalette
           onAddTask={addTask}
           onAddSubProcess={addSubProcess}
+          onAddTaskSubtype={addTaskSubtype}
           onAddStart={addStart}
           onAddEnd={addEnd}
           onAddGateway={addGateway}
@@ -767,8 +780,15 @@ function BpmnFlow() {
                 controls, not palette items — kept as the existing text-button
                 convention, deliberately not folded into the palette sidebar. */}
             <div className="bpmn-viewport-controls" role="group" aria-label="Canvas controls">
-              <button type="button" className="xb" onClick={() => zoomIn({ duration: 160 })} title="Zoom in"><span className="bpmn-tb-icon">＋</span></button>
-              <button type="button" className="xb" onClick={() => zoomOut({ duration: 160 })} title="Zoom out"><span className="bpmn-tb-icon">－</span></button>
+              {/* Combined zoom stepper (2026-08-22, operator request) — was
+                  two separate .xb buttons side by side; same two actions
+                  (zoomIn/zoomOut, untouched), now one visual control with
+                  + on top and - on bottom, matching the classic stepper
+                  convention rather than two independent toolbar buttons. */}
+              <div className="bpmn-zoom-stack" role="group" aria-label="Zoom">
+                <button type="button" onClick={() => zoomIn({ duration: 160 })} title="Zoom in">＋</button>
+                <button type="button" onClick={() => zoomOut({ duration: 160 })} title="Zoom out">－</button>
+              </div>
               <button type="button" className="xb" onClick={() => fitView({ duration: 220, padding: 0.2 })} title="Fit view">Fit</button>
               <button
                 type="button"
@@ -849,6 +869,15 @@ function BpmnFlow() {
               <span className={`bpmn-status bpmn-status-${bpmnStatus.kind}`} title={bpmnStatus.text}>{bpmnStatus.text}</span>
             )}
             <div className="bpmn-toolbar-divider" />
+            <button
+              type="button"
+              className={`xb ${toolbarMoreOpen ? 'blue' : ''}`}
+              onClick={() => setToolbarMoreOpen(v => !v)}
+              title={toolbarMoreOpen ? 'Hide History/Shortcuts' : 'Show History/Shortcuts'}
+            >
+              ⋯ More
+            </button>
+            {toolbarMoreOpen && (
             <div className="bpmn-reference-controls" role="group" aria-label="History and shortcuts">
               <div className="bpmn-history">
                 <button type="button" className={`xb ${historyOpen ? 'blue' : ''}`} onClick={() => setHistoryOpen(v => !v)} title="Version history — manual, in-memory snapshots (not persisted across a reload)">
@@ -883,6 +912,7 @@ function BpmnFlow() {
                 )}
               </div>
             </div>
+            )}
             <div className="bpmn-toolbar-divider" />
             <button type="button" className="xb" onClick={resetAll} title="Reset to the starter example"><span className="bpmn-tb-icon">↺</span> Reset</button>
           </div>
