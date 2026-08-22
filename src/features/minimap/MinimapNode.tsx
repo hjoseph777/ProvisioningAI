@@ -18,6 +18,27 @@ import { useInternalNode, type MiniMapNodeProps } from '@xyflow/react';
 // (relocated as-is into minimapNodeColor.js, same folder) still does that
 // job; MiniMap computes it per node and hands it down as the `color` prop
 // below, exactly as before this step. Only the shape is new.
+//
+// CSS-cascade bug found and fixed here (2026-08-22, reported live by a human
+// looking at the actual rendered app — the DOM-attribute check used to
+// "verify" this earlier was checking the wrong signal and never caught it):
+// fill/stroke/strokeWidth were being set as plain SVG presentation
+// attributes (`fill={color}`). @xyflow/react's own base.css carries
+// `.react-flow__minimap-node { fill: var(--xy-minimap-node-background-color,
+// ...#e2e2e2); stroke: ...; stroke-width: ...; }` — every element here also
+// carries that exact class (needed for the library's own hover/selected
+// behavior). Presentation attributes are the LOWEST-priority style source in
+// the CSS cascade — any matching stylesheet rule silently wins over them,
+// with zero warning and no effect on getAttribute(), which is exactly what
+// made this invisible to an attribute-only check: every node's fill
+// *attribute* correctly held its real per-type color, while every node's
+// *computed*, actually-painted fill was the same flat #e2e2e2 gray
+// (confirmed directly via getComputedStyle before this fix — every one of 6
+// differently-colored nodes computed to identical rgb(226,226,226)).
+// Fixed by moving fill/stroke/strokeWidth into an inline `style` object
+// instead — inline styles sit far above an external stylesheet's class
+// selector in the cascade, so they render correctly regardless of what
+// react-flow's own base.css sets for the same class.
 function diamondPoints(w: number, h: number) {
   return `${w / 2},0 ${w},${h / 2} ${w / 2},${h} 0,${h / 2}`;
 }
@@ -38,9 +59,7 @@ export default function MinimapNode({ id, x, y, width, height, color, strokeColo
       <polygon
         points={diamondPoints(width, height)}
         transform={`translate(${x}, ${y})`}
-        fill={color}
-        stroke={stroke}
-        strokeWidth={width_}
+        style={{ fill: color, stroke, strokeWidth: width_ }}
         strokeLinejoin="round"
         className={className}
       />
@@ -52,9 +71,7 @@ export default function MinimapNode({ id, x, y, width, height, color, strokeColo
       <rect
         x={x} y={y} width={width} height={height}
         rx={height / 2} ry={height / 2}
-        fill={color}
-        stroke={stroke}
-        strokeWidth={width_}
+        style={{ fill: color, stroke, strokeWidth: width_ }}
         className={className}
       />
     );
@@ -65,9 +82,7 @@ export default function MinimapNode({ id, x, y, width, height, color, strokeColo
       <rect
         x={x} y={y} width={width} height={height}
         rx={3} ry={3}
-        fill="none"
-        stroke={selected ? SELECTED_STROKE : 'rgba(255,255,255,0.25)'}
-        strokeWidth={selected ? 2 : 1}
+        style={{ fill: 'none', stroke: selected ? SELECTED_STROKE : 'rgba(255,255,255,0.25)', strokeWidth: selected ? 2 : 1 }}
         className={className}
       />
     );
@@ -78,9 +93,7 @@ export default function MinimapNode({ id, x, y, width, height, color, strokeColo
     <rect
       x={x} y={y} width={width} height={height}
       rx={3} ry={3}
-      fill={color}
-      stroke={stroke}
-      strokeWidth={width_}
+      style={{ fill: color, stroke, strokeWidth: width_ }}
       className={className}
     />
   );
