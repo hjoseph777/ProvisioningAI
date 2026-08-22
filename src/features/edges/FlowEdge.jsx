@@ -19,10 +19,27 @@ const LABEL_INTERACTION_HEIGHT = 44;
 
 // No TriggerMode-equivalent concept exists on this canvas at all (documentation-
 // only, no engine behind it) — so unlike the M-Files canvas, there's no honest
-// distinction to draw between edges. When animateFlow is on, every sequence flow
-// animates uniformly; this is presented as decorative ("alive" feeling), not as a
-// claim about which steps are automatic vs. manual, because BPMN Standard makes no
-// such claim about any of its edges.
+// automatic/manual distinction to draw between edges; animateFlow stays purely
+// decorative in that sense, not a claim BPMN Standard makes about any edge.
+//
+// The dot's COLOR, added 2026-08-22, is a separate thing: it reads the edge's
+// own real `label` text (the same free-text field the right-click menu's
+// "transition name" sets — e.g. this canvas's own starter sketch already
+// ships "valid"/"invalid" on its two branch edges) rather than inventing new
+// data. Confirmed with the operator this should key off branch-outcome
+// wording specifically, not edge type or a distinct-color-per-path scheme.
+// Since the label is free text, not an enum, this is necessarily a keyword
+// match, not an exhaustive classification — anything that doesn't match
+// falls back to the same green every dot used before this change, so an
+// unlabeled or non-outcome-worded edge (most of them, on most diagrams)
+// looks exactly as it did previously.
+function branchDotColor(label) {
+  const text = (typeof label === 'string' ? label : '').toLowerCase();
+  if (/\b(invalid|reject|rejected|denied?|fail(ed)?|no)\b/.test(text)) return 'var(--red)';
+  if (/\b(valid|approve[d]?|accept(ed)?|yes|ok)\b/.test(text)) return 'var(--green)';
+  return 'var(--green)';
+}
+
 export default function FlowEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, style, markerEnd, label, selected }) {
   const animateFlow = useBpmnStore(s => s.animateFlow);
   const connectorStyle = useBpmnStore(s => s.connectorStyle);
@@ -160,13 +177,16 @@ export default function FlowEdge({ id, sourceX, sourceY, targetX, targetY, sourc
           </div>
         </EdgeLabelRenderer>
       )}
-      {animateFlow && (
-        <circle r={DOT_DEFAULTS.radius} className="edge-flow-dot" fill="var(--green)" style={{ color: 'var(--green)' }}>
-          <animateMotion dur={`${DOT_DEFAULTS.duration}s`} repeatCount="indefinite" rotate="auto">
-            <mpath href={`#${id}`} />
-          </animateMotion>
-        </circle>
-      )}
+      {animateFlow && (() => {
+        const dotColor = branchDotColor(label);
+        return (
+          <circle r={DOT_DEFAULTS.radius} className="edge-flow-dot" fill={dotColor} style={{ color: dotColor }}>
+            <animateMotion dur={`${DOT_DEFAULTS.duration}s`} repeatCount="indefinite" rotate="auto">
+              <mpath href={`#${id}`} />
+            </animateMotion>
+          </circle>
+        );
+      })()}
     </>
   );
 }

@@ -2439,6 +2439,130 @@ A human (Harry) confirmed live, in both the browser and the packaged Electron ap
 
 ---
 
+## UX polish pass, Item 1: palette width narrowed 240px → 200px, measured not guessed (2026-08-22, new session)
+
+Scoped, 3-item UX pass on the Process Docs (BPMN) canvas: palette width, contrast, toolbar spacing. Item 1 done and verified first, per the operator's checkpoint-per-item instruction; items 2-3 to follow as separate entries.
+
+**Method (applying the minimap lesson directly):** before touching CSS, took a real screenshot of the expanded palette at the current 240px, then live-probed the actual DOM at seven candidate widths (170/180/190/200/210/220/240px, via `getBoundingClientRect`/`scrollWidth` on the real rendered elements, injected as a temporary inline-style override — not a code edit yet) to find where real content actually stops fitting, rather than picking a number by eye.
+
+**Findings:**
+- No palette tile label ever truncates or overflows its own button down to 170px — the longest label, "Sub-Process," is 66px wide; tiles were never the real constraint at any tested width.
+- The real constraint is the 3-card edge-type picker's label+hint text. At the old 240px, "Default"'s hint fit on 1 line while "Editable"/"Routable" wrapped to 2 — three visibly mismatched card heights (42/54/54px). At 200px, all three wrap to a uniform 2 lines (54px cards each) with no orphaned single-word lines — narrower **and** more visually consistent than before. Below 190px the cards start wrapping unevenly again (180px: 2/2/3 lines; 170px: 3/3/3, visibly tighter).
+- 200px is therefore the narrowest width that stays uniform: comfortably fits every real content element with zero truncation, and incidentally fixes a pre-existing card-height inconsistency as a side effect.
+
+**Change:** `.bpmn-pal-shell.pinned`, `.bpmn-pal-shell:not(.pinned) .bpmn-pal-panel.expanded`, and `.bpmn-pal-shell.pinned .bpmn-pal-panel` in `src/App.jsx` — `240px` → `200px`, all three, plus the explanatory comment above them updated with the measured reasoning (not just the new number). Scoped to `.bpmn-pal-*` only; `.mflow-pal-*` (M-Files Flow's separate palette, same 240px pattern) was deliberately left untouched — out of this task's scope (Process Docs canvas only).
+
+**Verified live, fresh reload (clearing the probe script's inline overrides so the CSS itself is what's being checked, not a leftover injected value):**
+- Collapsed width: `44px`, unaffected — confirmed via `getBoundingClientRect`, matches the unchanged base rule.
+- Expanded width: `200px`, both shell and panel, driven by the actual CSS class (not an inline override) — confirmed via `getBoundingClientRect` after a full page reload.
+- Zero horizontal overflow on the palette body (`scrollWidth === clientWidth`, 195px both).
+- Real screenshots, before (240px) and after (200px, both the top of the palette and scrolled to the edge-type cards) — visually confirms comfortable spacing, no cramping, no truncated labels, and the edge-type cards now reading as a clean uniform set rather than three different heights.
+- Zero console errors, zero page errors.
+
+**Full regression, run after this item per the operator's own instruction (not deferred to the end):**
+- Undo/redo: added a node via the palette (6→7 nodes), Undo correctly returned to 6, Redo correctly returned to 7.
+- Edge type picker: clicking "Editable" correctly set it `.active`; switched back to "Default" afterward so it didn't affect later items.
+- Minimap: `getComputedStyle().fill` sampled across all 7 nodes came back as 4 distinct real colors (green start, blue-gray tasks, blue exclusive-gateway, gold end) — still correctly colored post-fix, no regression from the CSS-only width change.
+- BPMN export: toast read exactly `"Exported — 0 schema warnings"`.
+- Save: toast read exactly `"Saved — 6 elements"`.
+- Zero console errors or page errors across the whole sequence.
+
+---
+
+## UX polish pass, Item 2: real contrast failures found and fixed via getComputedStyle, plus consistent hover-highlight for pale text (2026-08-22, same session)
+
+Applying the minimap lesson directly again: computed actual contrast ratios via `getComputedStyle()` (WCAG relative-luminance formula, implemented directly against live computed colors — not read off the CSS source) for every text/background pair named in the operator's ask, rather than eyeballing it.
+
+**Real failures found (all measured live, not estimated):**
+- Toolbar buttons (`.xb`, resting-state text — Zoom/Fit/Undo/Export/Save/Business View/History/Reset, etc.): **3.93:1** against their real `--s2` toolbar background. Fails AA (needs 4.5:1).
+- Palette group headings (`.bpmn-pal-group-lbl` — "EVENTS"/"ACTIVITIES"/etc.): **4.16:1**. Borderline fail.
+- Edge-type picker hint text (`.bpmn-pal-edge-type-hint` — "Standard sequence flow line" etc.): **1.42:1** against its real card background. Not a guideline miss — functionally illegible, the worst failure found in this pass.
+- Connectors info note (`.bpmn-pal-info`): my first pass mismeasured this as 1.2:1 because the naive script ignored alpha compositing on its translucent blue-tinted background; a corrected script that alpha-composites the real ancestor background stack (not just reads the nearest opaque one) found the true value once the shared color fix below was applied: 5.41:1, a real pass — flagged here because the bad first number would have been a false "still broken" if reported without the correction, the same category of self-inflicted measurement error the earlier minimap passes made in the other direction (missing a real failure instead of inventing one).
+
+**Fix:** added one new token, `--mid2:#6E90BE` (`src/App.jsx`'s `:root`), an AA-passing stand-in for `--mid`/`--dim` — computed at ~5.4:1 against `--s2` and ~5.0:1 against `--s3`, the two real backgrounds these selectors sit on. Applied to `.xb`, `.bpmn-pal-group-lbl`, `.bpmn-pal-info`, `.bpmn-pal-segmented button`, and `.bpmn-pal-edge-type-hint` — the specific selectors the live audit actually flagged, not a global redefinition of `--mid`/`--dim` (which are used in dozens of other selectors across the app never audited this pass and outside this task's scope).
+
+**Re-verified live after the fix:** `.xb` 5.45:1, `.bpmn-pal-group-lbl` 5.77:1, `.bpmn-pal-info` 5.41:1 (alpha-corrected), all pass. `.bpmn-pal-edge-type-hint` passes on its two non-active cards (~5.0:1 against plain `--s3`) and lands at 4.38:1 on the currently-active card's own lighter color-tinted background — a few percent under the strict 4.5:1 line, left as-is per the task's own "AA-ish territory, not a strict compliance audit" scoping rather than further tuning a token for a fractional, likely-imperceptible gap on one specific state.
+
+**Hover-highlight consistency (operator's mid-task addition, "Item A"):** confirmed blue (`--a3`) via `AskUserQuestion` before implementing. Audited every existing `:hover{color:...}` rule in the Process Docs canvas's own toolbar/palette/edge-picker/history/status-bar — found the canvas already used `--a3` as its hover convention almost everywhere (`.xb`, `.bpmn-pal-tile`, `.bpmn-pal-toggle`, `.bpmn-pal-segmented`, `.bpmn-pal-nudge`, `.bpmn-node-toolbar-actions`, `.bpmn-context-menu`, `.bpmn-status-bar-item.clickable`, `.bpmn-history-item` all already did), so this was mostly confirming an existing pattern rather than introducing a new one. Closed the real gaps found: the edge-type picker's own `:hover` rule never touched text color at all (its pale hint text stayed pale even while hovered — now both label and hint turn `--a3` on hover, matching `.bpmn-pal-tile`'s established convention); `.bpmn-history-item-count` and `.bpmn-status-bar-chevron` each set their own explicit `color`, so they didn't inherit their parent row's hover color change — added explicit hover rules for both. Left `.bpmn-status-bar-summary.ok`/`.warn`'s green/gold text untouched on hover deliberately — that color carries real validation-state meaning and turning it blue on hover would destroy that signal; only its decorative chevron gets the hover highlight.
+
+**Verified live via `page.mouse.move` (real hover, not synthetic dispatch — the browser-automation skill's own documented gotcha that synthetic events don't trigger real `:hover`):** hovering the "Editable" edge-type card shows its label and hint both resolve to `rgb(74, 159, 255)` (`--a3`) via `getComputedStyle`, confirmed by a real screenshot — the card's border still shows its own per-type accent color (green, untouched, out of scope), while the label/hint text turns the same blue as every other hovered control in the canvas.
+
+**Full regression, same five checks as item 1:** undo/redo (6→7→6→7), edge type picker (`Editable` → `.active`, switched back to `Default`), minimap (4 distinct real computed fills across 7 nodes, unaffected), BPMN export toast (`"Exported — 0 schema warnings"`), Save toast (`"Saved — 6 elements"`). Zero console errors or page errors throughout.
+
+Item 3 (toolbar spacing/consistency) and the operator's "Item B" (unified Export/Import control) are next, tracked as separate checkpoint entries below.
+
+---
+
+## UX polish pass, Item 3: toolbar group spacing and icon-size consistency (2026-08-22, same session)
+
+**Findings, measured live (`getBoundingClientRect()` on every direct child of `.bpmn-toolbar`), not assumed:**
+- Group-to-group gaps were already numerically consistent (6px, the toolbar's own flex `gap`) everywhere a divider existed — the one real gap was structural, not spatial: the History and Shortcuts dropdown-button wrappers had no divider between them and no shared `role="group"` wrapper the way every other cluster (viewport/history/layout/io/saveload) did, so they read as a looser, ungrouped pair next to five clearly-bounded clusters.
+- Icon sizing was genuinely inconsistent: the toolbar mixes emoji glyphs (💾📂⌨🔓🔒) with monospace math/arrow glyphs (＋－↶↷⟲↺⇩⇧▶) side by side with no shared sizing, so they rendered at different natural visual weights next to each other.
+- Tooltips: already present on every toolbar button via the native `title` attribute (confirmed via a live DOM sweep — zero buttons found missing one) — nothing to add here, contrary to what the ask implied might be missing.
+
+**Fix:** wrapped History and Shortcuts in a new `.bpmn-reference-controls` group (`role="group" aria-label="History and shortcuts"`, same 4px inner gap and divider convention as every other cluster) in `BpmnCanvas.jsx`. Wrapped every toolbar icon glyph in a `<span className="bpmn-tb-icon">` and gave it a fixed `width:13px;font-size:11px;line-height:1` in `src/App.jsx`, so every icon — emoji or glyph — occupies the same visual footprint. Deliberately did not swap the glyphs for an SVG icon library (lucide-react is already a dependency and used elsewhere in this exact palette, so it was a real option) — sizing them consistently in place is a smaller, lower-risk change that satisfies "purely visual/spacing," where a full icon swap would have been a bigger content change than this pass called for.
+
+**Verified live:** every group-to-group gap measures exactly 6px (the one 188px gap is the toolbar's own intentional `margin-left:auto` right-alignment push before the History/Layout/IO/Save clusters, not a bug). Every one of the 13 icon spans measures an identical 13×11px, regardless of glyph family. Zero buttons missing a `title`. Real screenshot shows a visibly cleaner two-row toolbar (previously wrapped to three rows with History/Shortcuts/Reset scattered across the wrap point; now only Reset wraps alone).
+
+**Full regression, same five checks:** undo/redo (6→7→6→7), edge type picker (`Editable` → `.active` → back to `Default`), minimap (4 distinct real computed fills across 7 nodes), BPMN export toast (confirmed via the same toast-text method items 1-2 used), Save toast. Zero console errors or page errors.
+
+---
+
+## UX polish pass, Item A: hover-highlight consistency — folded into Item 2 above, not a separate change
+
+The operator's mid-task "Item A" (every low-contrast/pale text element should highlight blue on hover, consistently, no one-off exceptions) landed in the middle of Item 2's contrast work and touched the same selectors, so it's recorded there rather than duplicated. Blue (`--a3`) was confirmed via `AskUserQuestion` before implementing. Summary: the canvas's toolbar/palette already used `--a3` as its hover convention almost everywhere; the real gaps closed were the edge-type picker's hint text (never changed color on hover at all) and two child spans with their own explicit `color` that didn't inherit their parent row's hover color (`.bpmn-history-item-count`, `.bpmn-status-bar-chevron`). Full detail, live verification via real `page.mouse.move` hover (not synthetic dispatch), and screenshot: Item 2's entry above.
+
+---
+
+## UX polish pass, Item B: unified Export/Import controls, replacing 4 separate buttons with 2 format-picker dropdowns (2026-08-22, same session)
+
+**Scope:** collapse the previous 4 toolbar buttons (Export BPMN / Import BPMN / Save / Load) into one "Export ▾" and one "Import ▾" control, each opening a format menu. Export gains two new formats not previously offered at all: SVG and PNG canvas snapshots. Explicitly a UI consolidation — `saveLoadSlice.js`'s JSON logic and `bpmnIoSlice.js`'s BPMN XML logic are untouched, just now invoked from menu items instead of dedicated buttons.
+
+**Feasibility check, done before writing any code per the operator's explicit "confirm this explicitly before implementing" instruction:** `@xyflow/react` doesn't bundle an image-export helper, but the React Flow team's own official "Download Image" example uses `html-to-image` (a pure client-side DOM-to-canvas/SVG library — no backend, no Puppeteer) via `getNodesBounds()` + `getViewportForBounds()` (both confirmed real exports of `@xyflow/react` 12.11.3 by checking the package's own `.d.ts` before use, not assumed) to size and transform a clone of `.react-flow__viewport`, then `toPng`/`toSvg`. This is the standard, well-precedented pattern for this exact library version — distinct from, and not to be confused with, the deferred `15_server-side-image-creation` feature (still gated on standing up an Express+Puppeteer service, per the Process Docs porting plan in CLAUDE.md). Added `html-to-image` as a new dependency (`npm install html-to-image`) — a real new package, called out explicitly here since CLAUDE.md's general rule is "no new dependencies without asking"; the operator's own instructions this turn specifically directed a pure-client-side SVG/PNG implementation, which is the authorization for this one addition.
+
+**Built:** `src/features/export-import/exportImage.js` (`exportPng`/`exportSvg`, following the official pattern, 40px padding, backgroundColor baked in to match the canvas's real `--bg` since a transparent export would render broken/black in most viewers). `BpmnCanvas.jsx` gained `exportMenuOpen`/`importMenuOpen` state and two dropdown menus (reusing the existing `.bpmn-history-dropdown`/`.bpmn-history-item` CSS rather than inventing new ones, same as the History/Shortcuts dropdowns already on this toolbar) in place of the old `bpmn-io-controls`/`bpmn-saveload-controls` button groups. `App.jsx` lost the now-orphaned `.bpmn-saveload-controls` selector (Sweeper Protocol) and gained `.bpmn-export-menu{position:relative}`.
+
+**Verified live, all four export formats — real evidence, not toast text alone:**
+- JSON: toast `"Saved — 6 elements"`; the actual saved file (captured via a real Playwright download, not a mocked one) parses as valid JSON with `nodes: 6`, `edges: 6`, `hasViewport: true`.
+- BPMN XML: toast `"Exported — 0 schema warnings"` (same `validateBpmnModel` round-trip guarantee as before — schema-valid, not just "didn't throw").
+- SVG: toast `"Exported SVG snapshot"`; the real downloaded file is 744,917 bytes containing genuine `<svg><foreignObject>` markup with the actual `.react-flow__viewport` div (real transform/style) inside — not an empty or placeholder file.
+- PNG: toast `"Exported PNG snapshot"`; the real downloaded file is 15,787 bytes with valid PNG magic bytes and an `IHDR` chunk reporting 470×582 — matching the computed bounds+padding size, not a blank/broken image.
+- (Getting real evidence for SVG/PNG took three attempts — hooking `URL.createObjectURL`/`Blob` and hooking `<a>`'s `href` setter both silently failed to capture anything despite the export visibly succeeding; registering a real Playwright `page.on('download')` listener and inspecting the actual saved bytes on disk is what worked. Recorded here since it's a real, reusable technique, not just a debugging footnote.)
+
+**Import round-trip verified:** exported JSON via the new unified control, Reset back to the starter layout, imported the same file back in via the unified Import menu's JSON item (using Playwright's `setInputFiles` on the real hidden file input, same one the menu item triggers) — toast read `"Loaded from file"`, node count correctly restored to 6.
+
+**Full regression:** undo/redo, edge type picker, and minimap all re-confirmed unaffected (same method as items 1-3). Zero console errors or page errors across the entire sequence, including during SVG/PNG export/download.
+
+**Real, visible bonus:** consolidating 4 buttons into 2 means the toolbar's io/saveload cluster no longer forces a wrap — the whole toolbar now fits on one row in the standard window size used for all this pass's screenshots (previously wrapped to 2-3 rows, visible in items 1-3's own screenshots above). Before/after screenshots on file for this item, same as items 1-3.
+
+---
+
+## Animate: dot color now reflects branch outcome (valid/invalid), not a flat green (2026-08-22, follow-up session)
+
+**Scope confirmed via `AskUserQuestion` before touching code** (three real interpretations existed — branch outcome, edge type, or a distinct color per full traversal path — genuinely ambiguous from the request alone): the operator picked branch outcome, keyed off the edge's own existing `label` text (the same free-text field the right-click menu's "Edit label" already sets — this canvas's own starter sketch already ships literal `"valid"`/`"invalid"` labels on its two branch edges, real data, not something new).
+
+**Built:** `branchDotColor(label)` in `FlowEdge.jsx` — a small keyword match (`/invalid|reject|rejected|denied?|fail(ed)?|no/i` → red, `/valid|approve[d]?|accept(ed)?|yes|ok/i` → green, anything else → green, the same color every dot used before this change). Necessarily a keyword match rather than an exhaustive classification since the label is free text, not an enum — an unlabeled or non-outcome-worded edge looks exactly as it did before this change. The animated `<circle>`'s `fill`/`style.color` now come from this function instead of a hardcoded `var(--green)`. Edge stroke/routing itself is untouched — this only changes the traveling dot, per the request's own wording ("animate use different colors") and this session's standing "don't touch edge type rendering/routing logic" boundary.
+
+**Verified live:** with Animate on, `getComputedStyle()` on all 6 `.edge-flow-dot` elements in the starter sketch returned exactly 5× `rgb(0, 200, 112)` (green) and 1× `rgb(255, 61, 90)` (red) — matching the starter diagram's real content exactly (one edge labeled `"invalid"`, the rest unlabeled or `"valid"`). Confirmed visually too, not just computed style: a real screenshot shows a visibly red dot on the gateway's "invalid" branch toward "Return to vendor," green dots everywhere else. `npm run build` clean.
+
+---
+
+## Right-click Undo/Redo verified across all object types; toolbar Undo/Redo buttons removed (2026-08-22, follow-up session)
+
+**Verified live, real interactions, not code-reading alone** — for each object type, performed a real undoable action (adding a node via the palette, or duplicating an edge via its own right-click menu), then did a genuine `page.mouse.click(x, y, {button: 'right'})` (not a synthetic menu-open call) on a real instance of that object type, confirmed the context menu actually opened and its Undo/Redo buttons were present and enabled, clicked the real button, and confirmed the underlying state actually changed (node/edge count before vs. after):
+
+- **Node:** right-clicked the real "Start" node. Menu opened, Undo enabled. Clicking it took node count 7→6 (correctly undoing the just-added node). Right-clicked again, Redo enabled, took it back 6→7.
+- **Edge:** right-clicked a real edge path. Menu opened (confirmed via its full text content, including `↶ Undo↷ Redo`). Duplicated the edge via its own menu (6→7 edges), right-clicked again, clicked Undo, correctly reverted 7→6.
+- **Pane (empty canvas):** first attempt clicked a coordinate that turned out to overlap the minimap (`paneMenuOpened: false`, a real methodology bug, not a product bug — caught and corrected rather than reported as a false finding). Recomputed a genuinely empty spot by checking candidate points against every node/minimap/panel/controls bounding box live, retested: menu opened, Undo enabled, clicking it correctly took node count 7→6.
+
+All three object types confirmed working, so per the operator's own decision tree: **toolbar Undo/Redo buttons removed.** `bpmn-history-controls` (the button group) removed from `BpmnCanvas.jsx`; the now-orphaned `.bpmn-history-controls` selector removed from `App.jsx`'s shared toolbar-group CSS rule (Sweeper Protocol). `canUndo`/`canRedo` and the `undo`/`redo` functions themselves are unchanged and still drive the context menu's own buttons — nothing left orphaned.
+
+**Keyboard shortcuts confirmed independent, after the toolbar buttons were gone:** added a node (6→7), clicked the canvas to ensure focus wasn't in a text input, then real `page.keyboard` Ctrl+Z → 7→6, Ctrl+Shift+Z → 6→7, Ctrl+Z again → 7→6. The keydown handler (`BpmnCanvas.jsx`) calls `undo()`/`redo()` directly and was never wired through the toolbar buttons — confirmed by reading it, not just inferred from the shortcuts still working.
+
+**Full regression, run after the toolbar removal:** palette width still 200px; edge type picker still switches to Editable/back to Default correctly; minimap still shows 4 distinct real computed colors; JSON export toast still reads `"Saved — 6 elements"`; the new Animate branch-outcome coloring (above) still shows 5 green + 1 red dot. Zero console errors or page errors across the entire sequence — right-click tests, keyboard shortcut tests, and the regression pass alike. `npm run build` clean.
+
+---
+
 ## Executive Summary
 
 | Metric | Value | Target |

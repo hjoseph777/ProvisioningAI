@@ -19,6 +19,7 @@ import HelperLines from './bpmn/HelperLines';
 import { getHelperLines } from '../utils/bpmnHelperLines';
 import { sortForHierarchy, fitNodeIntoParent } from '../utils/bpmnPools';
 import { validateBpmnModel, locateWarning } from '../features/bpmn-io/bpmnModdle';
+import { exportPng, exportSvg } from '../features/export-import/exportImage';
 import { useBpmnCopyPaste } from '../hooks/useBpmnCopyPaste';
 
 // 'default'/'input'/'output' override React Flow's built-in node components
@@ -188,6 +189,12 @@ function BpmnFlow() {
   const [snapshots, setSnapshots] = useState([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // Unified Export/Import menus (2026-08-22 UX pass, operator's "Item B") —
+  // one dropdown per direction replacing the previous 4 separate buttons
+  // (Export BPMN / Import BPMN / Save / Load). Same open/close pattern as
+  // historyOpen/shortcutsOpen above.
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [importMenuOpen, setImportMenuOpen] = useState(false);
   // Right-click menu — the report's other secondary-path gap: Edit/Duplicate/
   // Delete only ever reachable via double-click. { x, y, type: 'node'|'edge', id }
   const [contextMenu, setContextMenu] = useState(null);
@@ -724,12 +731,22 @@ function BpmnFlow() {
     }
   }, [loadFromFile, setViewport, fitView]);
 
+  // SVG/PNG canvas snapshot (2026-08-22, unified Export menu's third/fourth
+  // format) — pure client-side via html-to-image, not the deferred
+  // server-side-image-creation feature. No undo/redo entry (matches
+  // handleExportBpmn/handleSaveToFile — export never touches canvas state).
+  const handleExportImage = useCallback(async (format) => {
+    setExportMenuOpen(false);
+    try {
+      await (format === 'png' ? exportPng : exportSvg)(nodes, `bpmn-standard-${Date.now()}.${format}`);
+      setBpmnStatus({ kind: 'ok', text: `Exported ${format.toUpperCase()} snapshot` });
+    } catch (err) {
+      setBpmnStatus({ kind: 'error', text: `${format.toUpperCase()} export failed: ${err.message}` });
+    }
+  }, [nodes]);
+
   return (
     <div className="bpmn-canvas-wrap">
-      <div className="bpmn-doc-banner">
-        Documentation only — internal process communication, the same role Cacoo serves the AP team today.
-        Never feeds provisioning; isolated from the M-Files flow canvas and ProvisioningAI.Workflow/Translation/.
-      </div>
       <div className="bpmn-body">
         <BpmnPalette
           onAddTask={addTask}
@@ -750,8 +767,8 @@ function BpmnFlow() {
                 controls, not palette items — kept as the existing text-button
                 convention, deliberately not folded into the palette sidebar. */}
             <div className="bpmn-viewport-controls" role="group" aria-label="Canvas controls">
-              <button type="button" className="xb" onClick={() => zoomIn({ duration: 160 })} title="Zoom in">＋</button>
-              <button type="button" className="xb" onClick={() => zoomOut({ duration: 160 })} title="Zoom out">－</button>
+              <button type="button" className="xb" onClick={() => zoomIn({ duration: 160 })} title="Zoom in"><span className="bpmn-tb-icon">＋</span></button>
+              <button type="button" className="xb" onClick={() => zoomOut({ duration: 160 })} title="Zoom out"><span className="bpmn-tb-icon">－</span></button>
               <button type="button" className="xb" onClick={() => fitView({ duration: 220, padding: 0.2 })} title="Fit view">Fit</button>
               <button
                 type="button"
@@ -759,7 +776,7 @@ function BpmnFlow() {
                 onClick={() => setInteractionLocked(v => !v)}
                 title={interactionLocked ? 'Unlock canvas interactions' : 'Lock canvas interactions'}
               >
-                {interactionLocked ? '🔒' : '🔓'}
+                <span className="bpmn-tb-icon">{interactionLocked ? '🔒' : '🔓'}</span>
               </button>
             </div>
             {/* Grouped by function rather than one flat 13-button row — the
@@ -767,30 +784,59 @@ function BpmnFlow() {
                 gets harder to scan every time a capability is added. Each
                 cluster keeps a role="group" + aria-label like viewport
                 controls already had, for the same reason that one did. */}
+            {/* Toolbar Undo/Redo buttons removed 2026-08-22 — confirmed live
+                (real right-click interactions, real state-change checks, not
+                just "the menu item exists") that every object type's own
+                right-click context menu (node, edge, empty canvas/pane) has
+                always carried working Undo/Redo (undoRedoBtns, below), and
+                Ctrl+Z/Ctrl+Shift+Z remain a fully independent third entry
+                point (see the keydown handler below) — a dedicated toolbar
+                pair was redundant with two entry points that already
+                existed. canUndo/canRedo still drive the context-menu
+                buttons' disabled state, so they're not orphaned. */}
             <div className="bpmn-toolbar-divider" style={{ marginLeft: 'auto' }} />
-            <div className="bpmn-history-controls" role="group" aria-label="History">
-              <button type="button" className="xb" onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)">↶ Undo</button>
-              <button type="button" className="xb" onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
-            </div>
-            <div className="bpmn-toolbar-divider" />
             <div className="bpmn-layout-controls" role="group" aria-label="Layout">
-              <button type="button" className="xb" onClick={autoArrange} title="Auto-arrange via dagre (React_Flow_Pro/auto-layout-pro-example)">⟲ Auto-arrange</button>
+              <button type="button" className="xb" onClick={autoArrange} title="Auto-arrange via dagre (React_Flow_Pro/auto-layout-pro-example)"><span className="bpmn-tb-icon">⟲</span> Auto-arrange</button>
               <button type="button" className={`xb ${animateFlow ? 'blue' : ''}`}
                 onClick={() => setAnimateFlow(!animateFlow)}
                 title="Animate every sequence flow with a traveling dot — decorative only, this canvas has no automatic/manual distinction to ground it in">
-                ▶ Animate
+                <span className="bpmn-tb-icon">▶</span> Animate
               </button>
             </div>
             <div className="bpmn-toolbar-divider" />
             <div className="bpmn-io-controls" role="group" aria-label="Import and export">
-              <button type="button" className="xb" onClick={handleExportBpmn} title="Export as real BPMN 2.0 XML (bpmn-moddle) — round-trip validated before download">⇩ Export BPMN</button>
-              <button type="button" className="xb" onClick={() => importInputRef.current?.click()} title="Import a real BPMN 2.0 .bpmn/.xml file (bpmn-moddle)">⇧ Import BPMN</button>
+              {/* Unified Export/Import menus (2026-08-22 UX pass) — one
+                  control per direction, format picked from a dropdown,
+                  replacing the previous 4 separate buttons. Underlying
+                  logic unchanged: JSON routes through saveToFile/
+                  loadFromFile (saveLoadSlice.js), BPMN XML through
+                  exportBpmnFile/importBpmnFile (bpmnIoSlice.js) — this is a
+                  UI consolidation only. */}
+              <div className="bpmn-export-menu" onMouseLeave={() => setExportMenuOpen(false)}>
+                <button type="button" className={`xb ${exportMenuOpen ? 'blue' : ''}`} onClick={() => setExportMenuOpen(v => !v)} title="Export the diagram — JSON, BPMN XML, SVG, or PNG">
+                  <span className="bpmn-tb-icon">⇩</span> Export ▾
+                </button>
+                {exportMenuOpen && (
+                  <div className="bpmn-history-dropdown">
+                    <button type="button" className="bpmn-history-item" onClick={() => { setExportMenuOpen(false); handleSaveToFile(); }} title="Full app state — nodes, edges, viewport">JSON <span className="bpmn-history-item-count">.json</span></button>
+                    <button type="button" className="bpmn-history-item" onClick={() => { setExportMenuOpen(false); handleExportBpmn(); }} title="Real BPMN 2.0 XML, schema-valid (bpmn-moddle)">BPMN XML <span className="bpmn-history-item-count">.bpmn</span></button>
+                    <button type="button" className="bpmn-history-item" onClick={() => handleExportImage('svg')} title="Vector snapshot of the current canvas">SVG <span className="bpmn-history-item-count">.svg</span></button>
+                    <button type="button" className="bpmn-history-item" onClick={() => handleExportImage('png')} title="Raster snapshot of the current canvas">PNG <span className="bpmn-history-item-count">.png</span></button>
+                  </div>
+                )}
+              </div>
+              <div className="bpmn-export-menu" onMouseLeave={() => setImportMenuOpen(false)}>
+                <button type="button" className={`xb ${importMenuOpen ? 'blue' : ''}`} onClick={() => setImportMenuOpen(v => !v)} title="Import a diagram — JSON or BPMN XML">
+                  <span className="bpmn-tb-icon">⇧</span> Import ▾
+                </button>
+                {importMenuOpen && (
+                  <div className="bpmn-history-dropdown">
+                    <button type="button" className="bpmn-history-item" onClick={() => { setImportMenuOpen(false); saveLoadInputRef.current?.click(); }} title="Load a previously saved JSON file">JSON <span className="bpmn-history-item-count">.json</span></button>
+                    <button type="button" className="bpmn-history-item" onClick={() => { setImportMenuOpen(false); importInputRef.current?.click(); }} title="Import a real BPMN 2.0 .bpmn/.xml file (bpmn-moddle)">BPMN XML <span className="bpmn-history-item-count">.bpmn</span></button>
+                  </div>
+                )}
+              </div>
               <input ref={importInputRef} type="file" accept=".bpmn,.xml" style={{ display: 'none' }} onChange={handleImportBpmnFile} />
-            </div>
-            <div className="bpmn-toolbar-divider" />
-            <div className="bpmn-saveload-controls" role="group" aria-label="Save and load">
-              <button type="button" className="xb" onClick={handleSaveToFile} title="Save the diagram to a JSON file (nodes, edges, viewport) — no database, this canvas has no other persistence">💾 Save</button>
-              <button type="button" className="xb" onClick={() => saveLoadInputRef.current?.click()} title="Load a diagram from a previously saved JSON file">📂 Load</button>
               <input ref={saveLoadInputRef} type="file" accept=".json" style={{ display: 'none' }} onChange={handleLoadFromFile} />
             </div>
             <div className="bpmn-toolbar-divider" />
@@ -803,40 +849,42 @@ function BpmnFlow() {
               <span className={`bpmn-status bpmn-status-${bpmnStatus.kind}`} title={bpmnStatus.text}>{bpmnStatus.text}</span>
             )}
             <div className="bpmn-toolbar-divider" />
-            <div className="bpmn-history">
-              <button type="button" className={`xb ${historyOpen ? 'blue' : ''}`} onClick={() => setHistoryOpen(v => !v)} title="Version history — manual, in-memory snapshots (not persisted across a reload)">
-                History{snapshots.length ? ` (${snapshots.length})` : ''}
-              </button>
-              {historyOpen && (
-                <div className="bpmn-history-dropdown">
-                  <button type="button" className="bpmn-history-save" onClick={handleSaveSnapshot}>+ Save snapshot</button>
-                  {snapshots.length === 0 && <div className="bpmn-pal-empty">No snapshots yet</div>}
-                  {snapshots.map(snap => (
-                    <button key={snap.id} type="button" className="bpmn-history-item" onClick={() => handleRestoreSnapshot(snap)} title={`Restore — ${snap.nodes.length} nodes, ${snap.edges.length} edges`}>
-                      <span>{snap.at.toLocaleTimeString()}</span>
-                      <span className="bpmn-history-item-count">{snap.nodes.length}n / {snap.edges.length}e</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <div className="bpmn-shortcuts">
-              <button type="button" className={`xb ${shortcutsOpen ? 'blue' : ''}`} onClick={() => setShortcutsOpen(v => !v)} title="Keyboard shortcuts reference">⌨ Shortcuts</button>
-              {shortcutsOpen && (
-                <div className="bpmn-shortcuts-dropdown" onMouseLeave={() => setShortcutsOpen(false)}>
-                  {SHORTCUTS.map(({ keys, label }) => (
-                    <div className="bpmn-shortcuts-row" key={label}>
-                      <span>{label}</span>
-                      <span className="bpmn-shortcuts-keys">
-                        {keys.map(k => <kbd key={k}>{k}</kbd>)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
+            <div className="bpmn-reference-controls" role="group" aria-label="History and shortcuts">
+              <div className="bpmn-history">
+                <button type="button" className={`xb ${historyOpen ? 'blue' : ''}`} onClick={() => setHistoryOpen(v => !v)} title="Version history — manual, in-memory snapshots (not persisted across a reload)">
+                  History{snapshots.length ? ` (${snapshots.length})` : ''}
+                </button>
+                {historyOpen && (
+                  <div className="bpmn-history-dropdown">
+                    <button type="button" className="bpmn-history-save" onClick={handleSaveSnapshot}>+ Save snapshot</button>
+                    {snapshots.length === 0 && <div className="bpmn-pal-empty">No snapshots yet</div>}
+                    {snapshots.map(snap => (
+                      <button key={snap.id} type="button" className="bpmn-history-item" onClick={() => handleRestoreSnapshot(snap)} title={`Restore — ${snap.nodes.length} nodes, ${snap.edges.length} edges`}>
+                        <span>{snap.at.toLocaleTimeString()}</span>
+                        <span className="bpmn-history-item-count">{snap.nodes.length}n / {snap.edges.length}e</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="bpmn-shortcuts">
+                <button type="button" className={`xb ${shortcutsOpen ? 'blue' : ''}`} onClick={() => setShortcutsOpen(v => !v)} title="Keyboard shortcuts reference"><span className="bpmn-tb-icon">⌨</span> Shortcuts</button>
+                {shortcutsOpen && (
+                  <div className="bpmn-shortcuts-dropdown" onMouseLeave={() => setShortcutsOpen(false)}>
+                    {SHORTCUTS.map(({ keys, label }) => (
+                      <div className="bpmn-shortcuts-row" key={label}>
+                        <span>{label}</span>
+                        <span className="bpmn-shortcuts-keys">
+                          {keys.map(k => <kbd key={k}>{k}</kbd>)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="bpmn-toolbar-divider" />
-            <button type="button" className="xb" onClick={resetAll} title="Reset to the starter example">↺ Reset</button>
+            <button type="button" className="xb" onClick={resetAll} title="Reset to the starter example"><span className="bpmn-tb-icon">↺</span> Reset</button>
           </div>
           <div className="bpmn-flow-wrap">
             <ReactFlow

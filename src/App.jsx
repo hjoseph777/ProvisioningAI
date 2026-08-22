@@ -12,6 +12,15 @@ const CSS = `
   --accent:#1565D8;--a2:#2478F0;--a3:#4A9FFF;
   --green:#00C870;--red:#FF3D5A;--gold:#F0A500;--purple:#7C5CFC;
   --text:#C8DCFF;--mid:#5878A0;--dim:#243A58;
+  /* --mid2: an AA-passing stand-in for --mid/--dim, added 2026-08-22 UX pass.
+     --mid measures 3.93:1 against --s2 and --dim measures ~1.4:1 against
+     --s3 — both computed live via getComputedStyle, not guessed — well
+     under WCAG AA's 4.5:1 for normal text. --mid2 measures ~5.4:1 against
+     --s2 and ~5.0:1 against --s3. Scoped to the specific selectors that
+     failed the live check (Process Docs toolbar/palette) rather than
+     redefining --mid/--dim globally, which would recolor selectors never
+     audited this pass. */
+  --mid2:#6E90BE;
   --mono:'JetBrains Mono',monospace;--display:'Fraunces',serif;
 }
 html,body{height:100%;overflow:hidden}
@@ -233,7 +242,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13
 /* ── Shared utilities ── */
 .panel-toggle{width:22px;height:22px;border-radius:4px;border:1px solid var(--border);background:var(--s2);color:var(--mid);cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s;padding:0;line-height:1;margin-right:4px}
 .panel-toggle:hover{border-color:var(--a2);color:var(--a3);background:var(--s3)}
-.xb{font-size:9.5px;font-family:var(--mono);padding:4px 10px;border-radius:3px;border:1px solid var(--border);background:transparent;color:var(--mid);cursor:pointer;transition:all .15s;white-space:nowrap;flex-shrink:0}
+.xb{font-size:9.5px;font-family:var(--mono);padding:4px 10px;border-radius:3px;border:1px solid var(--border);background:transparent;color:var(--mid2);cursor:pointer;transition:all .15s;white-space:nowrap;flex-shrink:0}
 .xb:hover{border-color:var(--a2);color:var(--a3)}
 .xb.blue{background:var(--accent);border-color:var(--accent);color:#fff}
 .xb.blue:hover{background:var(--a2)}
@@ -631,7 +640,6 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
 
 /* ── BPMN documentation canvas (Process Docs section) — isolated from Studio ── */
 .bpmn-canvas-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0;background:var(--bg)}
-.bpmn-doc-banner{flex-shrink:0;padding:7px 14px;font-size:9.5px;line-height:1.6;color:var(--gold);background:rgba(240,165,0,.08);border-bottom:1px solid rgba(240,165,0,.3)}
 .bpmn-body{flex:1;display:flex;min-height:0;overflow:hidden}
 .bpmn-main{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden}
 /* position+z-index above the palette overlay (z-index:20) — the hover-expanded
@@ -639,9 +647,22 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
    without this its solid background would cover Auto-arrange/Animate. */
 .bpmn-toolbar{flex-shrink:0;position:relative;z-index:25;display:flex;align-items:center;gap:6px;padding:7px 12px;background:var(--s2);border-bottom:1px solid var(--border);flex-wrap:wrap}
 .bpmn-viewport-controls,
-.bpmn-history-controls,
 .bpmn-layout-controls,
-.bpmn-io-controls{display:flex;align-items:center;gap:4px;flex-shrink:0}
+.bpmn-io-controls,
+.bpmn-reference-controls{display:flex;align-items:center;gap:4px;flex-shrink:0}
+/* Export/Import dropdown wrapper (2026-08-22 UX pass, unified control) —
+   reuses .bpmn-history/.bpmn-shortcuts' own position:relative + dropdown
+   pattern rather than inventing a new one. */
+.bpmn-export-menu{position:relative}
+/* Icon glyph, normalized (2026-08-22 UX pass, item 3) — toolbar icons are a
+   mix of emoji (💾📂⌨🔓🔒) and monospace math/arrow glyphs (＋－↶↷⟲↺⇩⇧▶),
+   which render at different natural sizes/baselines side by side. Wrapping
+   each in this span and fixing font-size/line-height/width makes every
+   button's leading icon occupy the same visual footprint regardless of
+   which glyph family it comes from, without replacing the glyphs
+   themselves (an icon-library swap is a bigger, riskier change than this
+   purely-visual pass calls for). */
+.bpmn-tb-icon{display:inline-block;width:13px;font-size:11px;line-height:1;text-align:center;vertical-align:-1px}
 /* Groups functional clusters instead of one flat button row — height only
    (not the toolbar's own top/bottom padding), so it reads as a quiet
    separator rather than a heavy rule. */
@@ -656,16 +677,28 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
    Structurally still a left-docked sidebar (one review argued for replacing
    it with a floating toolbar entirely; rejected, kept as-is here). The shell
    always reserves 44px of real layout width (so the canvas never reflows on
-   hover) unless pinned, in which case it reserves 240px permanently — the
+   hover) unless pinned, in which case it reserves 200px permanently — the
    panel inside is what actually changes size, floating over the canvas via
    position:absolute when expanded-but-unpinned. 44px is the VS Code/GitHub/
    Slack icon-rail convention — confirmed against this app's own 32px compact
    tile (bpmn-pal-tile.compact below) before using it: ~6px margin each side,
    comfortable, not forced. Was 48px; tightened here after checking, not
    guessed at (an external review guessed "60-80px" without checking either
-   number — the real prior value was 48px, not that). */
+   number — the real prior value was 48px, not that).
+   200px (was 240px, 2026-08-22 UX pass): measured, not guessed — every real
+   content element (tile labels, search input, the 3 edge-type picker cards'
+   label+hint text) was probed live at 170/180/190/200/210/220/240px via
+   getBoundingClientRect. No tile label ever truncates or overflows its own
+   button down to 170px (longest is "Sub-Process" at 66px, tiles were never
+   the constraint). The edge-type cards' hint text is the real constraint:
+   at 240px "Default"'s hint sits on 1 line while "Editable"/"Routable" wrap
+   to 2, giving three visibly mismatched card heights; at 200px all three
+   wrap to a uniform 2 lines (54px cards) with no orphaned single-word
+   lines — narrower AND more visually consistent than the old width. Below
+   190px the cards start wrapping unevenly again (180px: 2/2/3 lines; 170px:
+   3/3/3, tighter). 200px is the narrowest point that stays uniform. */
 .bpmn-pal-shell{width:44px;flex-shrink:0;position:relative;z-index:20}
-.bpmn-pal-shell.pinned{width:240px}
+.bpmn-pal-shell.pinned{width:200px}
 .bpmn-pal-panel{
   position:relative;width:44px;height:100%;display:flex;flex-direction:column;overflow:hidden;
   background:rgba(7,17,31,0.85);backdrop-filter:blur(12px);border-right:1px solid var(--border);
@@ -674,11 +707,11 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
    at the same moment width changes — animating width across that snap reads
    as a glitch (and measures unreliably), so this transitions instantly. */
 .bpmn-pal-shell:not(.pinned) .bpmn-pal-panel.expanded{
-  position:absolute;left:0;top:0;bottom:0;width:240px;box-shadow:8px 0 24px rgba(0,0,0,.45);
+  position:absolute;left:0;top:0;bottom:0;width:200px;box-shadow:8px 0 24px rgba(0,0,0,.45);
 }
 /* Pinned case: position never changes (stays relative/in-flow), so a width
    transition here is safe and reads as an intentional, smooth pin/unpin. */
-.bpmn-pal-shell.pinned .bpmn-pal-panel{width:240px;transition:width .15s ease}
+.bpmn-pal-shell.pinned .bpmn-pal-panel{width:200px;transition:width .15s ease}
 .bpmn-pal-sidebar-head{flex-shrink:0;display:flex;align-items:center;gap:6px;padding:8px;border-bottom:1px solid var(--border)}
 .bpmn-pal-search-wrap{flex:1;position:relative;display:flex;align-items:center;min-width:0}
 .bpmn-pal-search-icon{position:absolute;left:7px;color:var(--dim);pointer-events:none}
@@ -689,7 +722,7 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
 .bpmn-pal-toggle.active{color:var(--a3);border-color:var(--a2);background:rgba(74,159,255,.12)}
 .bpmn-pal-sidebar-body{flex:1;overflow-y:auto;padding:10px 8px;display:flex;flex-direction:column;gap:12px}
 .bpmn-pal-group{display:flex;flex-direction:column;gap:4px}
-.bpmn-pal-group-lbl{font-size:8px;color:var(--mid);letter-spacing:.8px;text-transform:uppercase;padding:0 2px}
+.bpmn-pal-group-lbl{font-size:8px;color:var(--mid2);letter-spacing:.8px;text-transform:uppercase;padding:0 2px}
 .bpmn-pal-tiles{display:flex;flex-direction:column;gap:3px}
 .bpmn-pal-tile{
   display:flex;align-items:center;gap:8px;padding:6px 8px;width:100%;
@@ -705,14 +738,14 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
 .bpmn-pal-info{
   display:flex;align-items:flex-start;gap:7px;padding:7px 8px;
   background:rgba(74,159,255,.06);border:1px solid rgba(74,159,255,.18);border-radius:6px;
-  color:var(--mid);font-size:9.5px;line-height:1.5;
+  color:var(--mid2);font-size:9.5px;line-height:1.5;
 }
 .bpmn-pal-info svg{flex-shrink:0;margin-top:1px;color:var(--a3)}
 
 /* Connector-style picker (Orthogonal/Straight/Curved) — whole-canvas, lives
    under the Connectors group, expanded-only (see BpmnPalette.jsx). */
 .bpmn-pal-segmented{display:flex;gap:2px;margin-top:2px;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:2px}
-.bpmn-pal-segmented button{flex:1;display:flex;align-items:center;justify-content:center;padding:5px 0;background:none;border:none;border-radius:4px;color:var(--mid);cursor:pointer;transition:all .15s}
+.bpmn-pal-segmented button{flex:1;display:flex;align-items:center;justify-content:center;padding:5px 0;background:none;border:none;border-radius:4px;color:var(--mid2);cursor:pointer;transition:all .15s}
 .bpmn-pal-segmented button:hover{color:var(--a3)}
 .bpmn-pal-segmented button.active{background:var(--a2);color:#fff}
 
@@ -739,13 +772,22 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
 }
 .bpmn-pal-edge-type-option:hover:not(:disabled){border-color:var(--edge-type-color);background:var(--s4)}
 .bpmn-pal-edge-type-option:hover:not(:disabled)::before{opacity:.8}
+/* Text hover-highlight — matches .bpmn-pal-tile:hover's convention (every
+   interactive element's text turns --a3 blue on hover, not just its
+   border/background), extended here since this option's own :hover rule
+   above never touched color, leaving the hint text pale even on hover. */
+.bpmn-pal-edge-type-option:hover:not(:disabled) .bpmn-pal-edge-type-label,
+.bpmn-pal-edge-type-option:hover:not(:disabled) .bpmn-pal-edge-type-hint{color:var(--a3)}
 .bpmn-pal-edge-type-option.active{border-color:var(--edge-type-color);background:color-mix(in srgb, var(--edge-type-color) 12%, var(--s3))}
 .bpmn-pal-edge-type-option.active::before{opacity:1}
 .bpmn-pal-edge-type-option:disabled{opacity:.45;cursor:not-allowed}
 .bpmn-pal-edge-type-option svg{flex-shrink:0;color:var(--edge-type-color)}
 .bpmn-pal-edge-type-text{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
 .bpmn-pal-edge-type-label{font-size:10.5px;font-weight:600;display:flex;align-items:center;gap:6px;white-space:nowrap}
-.bpmn-pal-edge-type-hint{font-size:8.5px;color:var(--dim);line-height:1.35}
+/* --mid2, not --dim: --dim measured ~1.4:1 against this card's real --s3
+   background via getComputedStyle — effectively illegible, not just a
+   guideline miss. --mid2 measures ~5.0:1 here. */
+.bpmn-pal-edge-type-hint{font-size:8.5px;color:var(--mid2);line-height:1.35}
 .bpmn-pal-edge-type-loading{font-size:8px;color:var(--gold);font-weight:500}
 /* Radio dot — filled center only appears on .active, echoing the left
    accent bar and background tint so "this is the current default" reads
@@ -921,6 +963,11 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
 .bpmn-status-bar-summary.ok{color:var(--green)}
 .bpmn-status-bar-summary.warn{color:var(--gold)}
 .bpmn-status-bar-chevron{font-size:8px;color:var(--dim)}
+/* Chevron only, not the row's own text — .ok/.warn's green/gold conveys
+   real validation state and shouldn't turn blue on hover and lose that
+   meaning, but the chevron is purely decorative and gets the same
+   hover-highlight every other interactive element in this canvas has. */
+.bpmn-status-bar-summary:hover:not(:disabled) .bpmn-status-bar-chevron{color:var(--a3)}
 .bpmn-status-bar-list{overflow-y:auto;border-top:1px solid var(--border);padding:4px}
 .bpmn-status-bar-item{
   display:block;width:100%;text-align:left;padding:4px 8px;background:none;border:none;border-radius:4px;
@@ -942,6 +989,10 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
 .bpmn-history-item{display:flex;justify-content:space-between;gap:6px;padding:5px 8px;background:none;border:none;border-radius:5px;color:var(--text);font-family:var(--mono);font-size:9.5px;cursor:pointer;text-align:left}
 .bpmn-history-item:hover{background:var(--s4);color:var(--a3)}
 .bpmn-history-item-count{color:var(--dim);flex-shrink:0}
+/* count has its own explicit color, so it doesn't inherit the row's hover
+   color change above — without this it would stay dim while the rest of
+   the row turned blue. */
+.bpmn-history-item:hover .bpmn-history-item-count{color:var(--a3)}
 
 /* ── Keyboard-shortcuts reference — the report's own finding: ~6 real
    shortcuts existed with zero discoverability (no help panel, no "?"
