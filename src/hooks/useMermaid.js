@@ -23,12 +23,12 @@ export const useMermaid = (workflow, options = {}) => {
   // caller that opts out, since its palette lets a state exist before any
   // one of them is marked Initial and the canvas shouldn't stay hidden for
   // that reason alone (see MFlowCanvas.jsx's own call site comment).
-  const { requireInitial = true } = options;
+  const { requireInitial = true, forTranslator = false } = options;
 
   // Derive a stable cache key from the actual content — not the object reference
   const workflowKey = workflow?.id || workflow?.name || '';
   const stateKey = workflow?.states.map(s => `${s.name}:${s.initial}:${s.terminal}:${s.color || ''}`).join('|') ?? '';
-  const transKey = workflow?.transitions.map(t => `${t.from}→${t.to}→${t.group || ''}→${t.conditions || ''}`).join('|') ?? '';
+  const transKey = workflow?.transitions.map(t => `${t.from}→${t.to}→${t.group || ''}→${t.conditions || ''}→${t.label || ''}`).join('|') ?? '';
   const themeKey = workflow?.theme || '';
 
   return useMemo(() => {
@@ -135,7 +135,24 @@ export const useMermaid = (workflow, options = {}) => {
       // if it had resolved to something real (mirrors Decision 2's skeleton
       // philosophy: flag, don't fabricate).
       const parsedCondition = parseCondition(t.conditions);
-      const labelSuffix = isRenderable(parsedCondition) ? ` : ${parsedCondition.raw}` : '';
+      let edgeLabel = '';
+      if (forTranslator) {
+        const conditionsTrim = (t.conditions || '').trim();
+        const labelTrim = (t.label || '').trim();
+        if (labelTrim || conditionsTrim) {
+          edgeLabel = `${labelTrim} [${conditionsTrim}]`;
+        }
+      } else {
+        if (t.label && t.label.trim()) {
+          edgeLabel = t.label.trim();
+          if (isRenderable(parsedCondition)) {
+            edgeLabel += ` [${parsedCondition.raw}]`;
+          }
+        } else if (isRenderable(parsedCondition)) {
+          edgeLabel = parsedCondition.raw;
+        }
+      }
+      const labelSuffix = edgeLabel ? ` : ${edgeLabel}` : '';
 
       const g = (t.group || '').trim();
       if (g && promotedIds.has(g)) {
@@ -158,6 +175,5 @@ export const useMermaid = (workflow, options = {}) => {
     });
 
     return d;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workflowKey, stateKey, transKey, themeKey, requireInitial]); // includes workflow identity to avoid cross-tab memo reuse
+  }, [workflowKey, stateKey, transKey, themeKey, requireInitial, forTranslator]); // includes workflow identity to avoid cross-tab memo reuse
 };

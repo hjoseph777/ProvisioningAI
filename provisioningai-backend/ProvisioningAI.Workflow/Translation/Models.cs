@@ -63,6 +63,9 @@ public sealed class PlannedTransition
     public required string FromState { get; init; }
     public required string ToState { get; init; }
 
+    /// <summary>Cosmetic transition name, purely for visualization on the canvas.</summary>
+    public string? Name { get; init; }
+
     /// <summary>Human-readable name of the §3.5 rule (or lack of one) that produced this entry.</summary>
     public required string RuleApplied { get; init; }
 

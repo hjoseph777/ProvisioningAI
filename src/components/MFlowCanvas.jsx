@@ -57,6 +57,26 @@ let renderCounter = 0;
 
 const sanitizeStateId = name => (name || '').trim().replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
 
+const getContrastColor = (hex) => {
+  if (!hex) return '#ffffff';
+  const cleanHex = hex.replace('#', '');
+  if (cleanHex.length < 6) {
+    if (cleanHex.length === 3) {
+      const r = parseInt(cleanHex[0] + cleanHex[0], 16);
+      const g = parseInt(cleanHex[1] + cleanHex[1], 16);
+      const b = parseInt(cleanHex[2] + cleanHex[2], 16);
+      const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+      return yiq >= 128 ? '#0f172a' : '#ffffff';
+    }
+    return '#ffffff';
+  }
+  const r = parseInt(cleanHex.substring(0, 2), 16);
+  const g = parseInt(cleanHex.substring(2, 4), 16);
+  const b = parseInt(cleanHex.substring(4, 6), 16);
+  const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+  return yiq >= 128 ? '#0f172a' : '#ffffff';
+};
+
 // Quick preset swatches for the right-click menu's background-color row — named
 // colors, not the arbitrary picker (that's still the palette's Style
 // section, for anything outside this set).
@@ -192,6 +212,7 @@ export default function MFlowCanvas() {
   // hook is untouched, still requires an Initial state by default — see
   // useMermaid.js's own header comment.
   const mermaidStr = useMermaid(wf, { requireInitial: false });
+  const translatorMermaidStr = useMermaid(wf, { requireInitial: false, forTranslator: true });
   const diagRef = useRef(null);
   const layoutRef = useRef({}); // id -> {el,cx,cy,hw,hh} — rebuilt every render, read by drag handlers
   // Free-pan offset — NOT native scroll. A scroll-based pan only moves
@@ -247,6 +268,7 @@ export default function MFlowCanvas() {
   const [translationError, setTranslationError] = useState(null);
   const [isTranslating, setIsTranslating] = useState(false);
   const [translationVersion, setTranslationVersion] = useState(0);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const translateSeqRef = useRef(0); // guards against an in-flight call's response arriving after a newer edit
   // Step 5, explicitly optional per the task brief — hovering a state on the
   // canvas highlights its block in LiveTranslationView's Flattened view.
@@ -254,7 +276,7 @@ export default function MFlowCanvas() {
   const [hoveredStateKey, setHoveredStateKey] = useState(null);
 
   useEffect(() => {
-    if (!mermaidStr) {
+    if (!translatorMermaidStr) {
       translateSeqRef.current++; // invalidate any in-flight call — nothing to show it against anymore
       setTranslationPlan(null);
       setTranslationError(null);
@@ -270,7 +292,7 @@ export default function MFlowCanvas() {
         return;
       }
       setIsTranslating(true);
-      window.workflowTranslator.translate({ mermaid: mermaidStr }).then(res => {
+      window.workflowTranslator.translate({ mermaid: translatorMermaidStr }).then(res => {
         if (seq !== translateSeqRef.current) return; // superseded by a newer edit — drop this stale response
         setIsTranslating(false);
         if (res?.ok) {
@@ -283,7 +305,7 @@ export default function MFlowCanvas() {
       });
     }, 300);
     return () => clearTimeout(timer);
-  }, [mermaidStr]);
+  }, [translatorMermaidStr, refreshTrigger]);
 
   // Recomputes the floating multi-select toolbar's position from real,
   // current DOM state — a bounding box (screen coords, via
@@ -571,6 +593,7 @@ export default function MFlowCanvas() {
           screenCenters.forEach(c => { const d = (c.cx - x) ** 2 + (c.cy - y) ** 2; if (d < bestD) { bestD = d; best = c.id; } });
           return best;
         };
+        svgEl.querySelectorAll('.edgeLabel').forEach(el => { delete el.dataset.claimedByEdge; });
         const edgeList = [];
         // Each rendered path is matched to its real wf.transitions record by
         // resolved from/to NAME (not id — ids include the synthetic marker
@@ -611,6 +634,25 @@ export default function MFlowCanvas() {
               setContextMenu({ x: e.clientX, y: e.clientY, type: 'edge', transId: trans.id, fromName, toName });
             };
 
+            // Hover visual feedback (subtle glow & pointer cursor)
+            hitPath.onmouseenter = () => {
+              p.classList.add('mflow-transition-hover');
+            };
+            hitPath.onmouseleave = () => {
+              p.classList.remove('mflow-transition-hover');
+            };
+
+            // Native hover tooltip via svg <title> element
+            let titleEl = hitPath.querySelector('title');
+            if (!titleEl) {
+              titleEl = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+              hitPath.appendChild(titleEl);
+            }
+            const nameStr = trans.label ? `Name: ${trans.label}` : 'Unnamed Transition';
+            const condStr = trans.conditions ? `\nCondition: ${trans.conditions}` : '';
+            const typeStr = `\nType: ${trans.style === 'automatic' ? 'Automatic' : 'Manual'}`;
+            titleEl.textContent = `${trans.from} → ${trans.to}\n${nameStr}${typeStr}${condStr}`;
+
             // Reconnect handles — real, dedicated circles at the edge's own
             // start/end points (not the node handle drag-to-connect already
             // has, which lives on the NODE and only ever creates a brand
@@ -627,7 +669,31 @@ export default function MFlowCanvas() {
             endHandle.setAttribute('r', '4');
             svgEl.appendChild(endHandle);
           }
-          edgeList.push({ path: p, hitPath, startHandle, endHandle, fromId, toId, transId: trans?.id, fromName, toName });
+          let labelEl = null;
+          const parentG = p.closest('g.edgePath') || p.parentElement;
+          if (parentG && parentG.id) {
+            labelEl = svgEl.querySelector(`.edgeLabel[id="${parentG.id}"]`) || 
+                      svgEl.querySelector(`.edgeLabel#${parentG.id}`) ||
+                      svgEl.querySelector(`#${parentG.id}.edgeLabel`);
+          }
+          if (!labelEl && trans) {
+            const labels = svgEl.querySelectorAll('.edgeLabel');
+            for (const el of labels) {
+              const text = el.textContent?.trim();
+              if (text) {
+                const cond = trans.conditions || '';
+                const lbl = trans.label || '';
+                if ((lbl && text.includes(lbl)) || (cond && text.includes(cond))) {
+                  if (!el.dataset.claimedByEdge) {
+                    el.dataset.claimedByEdge = trans.id;
+                    labelEl = el;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+          edgeList.push({ path: p, hitPath, startHandle, endHandle, fromId, toId, transId: trans?.id, fromName, toName, labelEl });
         });
 
         // ── Apply any stored manual positions, then redraw every edge to match ──
@@ -692,22 +758,70 @@ export default function MFlowCanvas() {
         });
 
         const redrawEdge = edge => {
-          const { path, hitPath, startHandle, endHandle, fromId, toId } = edge;
+          const { path, hitPath, startHandle, endHandle, fromId, toId, transId, labelEl } = edge;
           const f = nodeCenters[fromId], t = nodeCenters[toId]; if (!f || !t) return;
           const d = orthogonalPath(f, t);
           path.setAttribute('d', d);
           if (hitPath) hitPath.setAttribute('d', d);
+
+          // Apply color and dashing style from store
+          const tObj = wf?.transitions.find(x => x.id === transId);
+          if (tObj) {
+            // Apply Stroke Color (Line Color)
+            if (tObj.color) {
+              path.style.stroke = tObj.color;
+            } else {
+              path.style.stroke = '';
+            }
+
+            // Apply Label Background Color
+            if (tObj.labelColor) {
+              const rectEl = labelEl?.querySelector('rect');
+              if (rectEl) {
+                rectEl.style.fill = tObj.labelColor;
+                rectEl.style.stroke = tObj.labelColor;
+              }
+              const textEl = labelEl?.querySelector('text');
+              if (textEl) {
+                textEl.style.fill = '#ffffff';
+              }
+            } else {
+              const rectEl = labelEl?.querySelector('rect');
+              if (rectEl) {
+                rectEl.style.fill = '';
+                rectEl.style.stroke = '';
+              }
+              const textEl = labelEl?.querySelector('text');
+              if (textEl) {
+                textEl.style.fill = '';
+              }
+            }
+
+            // Apply Dashing (solid by default, dashed for automatic trigger mode)
+            if (tObj.style === 'automatic') {
+              path.style.strokeDasharray = '7,5';
+            } else {
+              path.style.strokeDasharray = '';
+            }
+          }
+
           // Real endpoints, read back from the path itself rather than
           // re-deriving from orthogonalPath's own internals — robust to
           // that function's routing changing later. Stashed on the edge
           // object so the reconnect drag below can anchor its live dashed
           // line to "wherever the OTHER end currently is," not a stale value.
-          if (startHandle && endHandle) {
-            const len = path.getTotalLength();
+          const len = path.getTotalLength();
+          if (startHandle && endHandle && len > 0) {
             const sp = path.getPointAtLength(0), ep = path.getPointAtLength(len);
             startHandle.setAttribute('cx', String(sp.x)); startHandle.setAttribute('cy', String(sp.y));
             endHandle.setAttribute('cx', String(ep.x)); endHandle.setAttribute('cy', String(ep.y));
             edge.startPt = sp; edge.endPt = ep;
+          }
+
+          // Reposition the floating Mermaid label element to the path midpoint
+          if (labelEl && len > 0) {
+            const mid = path.getPointAtLength(len / 2);
+            labelEl.setAttribute('transform', `translate(${mid.x}, ${mid.y})`);
           }
         };
         edgeList.forEach(redrawEdge);
@@ -1014,7 +1128,7 @@ export default function MFlowCanvas() {
       } catch { if (!dead && diagRef.current) diagRef.current.innerHTML = '<div style="color:var(--red);font-size:11px;padding:16px">Diagram error</div>'; }
     })();
     return () => { dead = true; };
-  }, [mermaidStr, wf?.states, activeId, updateStatePosition, takeSnapshot, addTransition, updateTransition]);
+  }, [mermaidStr, wf?.states, wf?.transitions, activeId, updateStatePosition, takeSnapshot, addTransition, updateTransition]);
 
   // New states need a real default name, not blank — a blank-named state is
   // deliberately invisible in the diagram (useMermaid.js: `if (!name)
@@ -1219,6 +1333,28 @@ export default function MFlowCanvas() {
     if (next != null) { takeSnapshot(); updateTransition(activeId, t.id, { label: next.trim() || null }); }
   };
 
+  const handleEditTransitionCondition = () => {
+    if (!wf || contextMenu?.type !== 'edge' || !contextMenu.transId) { setContextMenu(null); return; }
+    const t = wf.transitions.find(t => t.id === contextMenu.transId);
+    setContextMenu(null);
+    if (!t) return;
+    const next = window.prompt('Transition condition (after(3d), if(P=V), script(Name)):', t.conditions || '');
+    if (next != null) {
+      takeSnapshot();
+      updateTransition(activeId, t.id, { conditions: next.trim() || null });
+    }
+  };
+
+  const handleToggleTransitionStyle = () => {
+    if (!wf || contextMenu?.type !== 'edge' || !contextMenu.transId) { setContextMenu(null); return; }
+    const t = wf.transitions.find(t => t.id === contextMenu.transId);
+    setContextMenu(null);
+    if (!t) return;
+    takeSnapshot();
+    const nextStyle = t.style === 'automatic' ? 'manual' : 'automatic';
+    updateTransition(activeId, t.id, { style: nextStyle });
+  };
+
   // ── Comment/status-box drag (simple, local — container-relative pixels,
   // not SVG user-space, since these overlay the diagram wrapper directly
   // rather than living inside the SVG). ──
@@ -1329,7 +1465,7 @@ export default function MFlowCanvas() {
                   empty message below is a non-blocking overlay on top of it,
                   not a replacement, so right-click/Select All still reaches
                   the real canvas underneath even with zero states. */}
-              <div className="mflow-diagram" ref={diagRef} onClick={e => e.stopPropagation()}/>
+              <div className="mflow-diagram" ref={diagRef} onClick={e => { setContextMenu(null); e.stopPropagation(); }}/>
               {!mermaidStr && (
                 <div className="mflow-diagram-empty">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
@@ -1339,111 +1475,101 @@ export default function MFlowCanvas() {
               )}
             </div>}
 
-        {wf && (wf.comments || []).map(c => (
-          <div key={c.id} className="mflow-comment" style={{ left: c.x, top: c.y, borderTopColor: c.color }}
-            onClick={e => e.stopPropagation()}
-            onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, type: 'comment', commentId: c.id }); }}>
-            <div className="mflow-comment-head" onMouseDown={e => startCommentDrag(e, c)}>
-              <input type="color" value={c.color} onChange={e => updateComment(activeId, c.id, { color: e.target.value })}/>
-              <button type="button" className="mflow-comment-del" onClick={() => { takeSnapshot(); deleteComment(activeId, c.id); }} title="Delete">✕</button>
+        {wf && (wf.comments || []).map(c => {
+          const contrast = getContrastColor(c.color);
+          const mutedContrast = contrast === '#ffffff' ? 'rgba(255, 255, 255, 0.6)' : 'rgba(15, 23, 42, 0.6)';
+          const borderBottomColor = contrast === '#ffffff' ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)';
+          return (
+            <div key={c.id} className="mflow-comment"
+              style={{
+                left: c.x,
+                top: c.y,
+                borderTop: '3px solid rgba(0, 0, 0, 0.15)',
+                backgroundColor: c.color,
+                borderColor: 'rgba(0, 0, 0, 0.12)',
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+              }}
+              onClick={e => { setContextMenu(null); e.stopPropagation(); }}
+              onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, type: 'comment', commentId: c.id }); }}>
+              <div className="mflow-comment-head" style={{ borderBottomColor, backgroundColor: 'transparent' }} onMouseDown={e => startCommentDrag(e, c)}>
+                <input type="color" value={c.color} onChange={e => updateComment(activeId, c.id, { color: e.target.value })}/>
+                <button type="button" className="mflow-comment-del" style={{ color: mutedContrast }} onClick={() => { takeSnapshot(); deleteComment(activeId, c.id); }} title="Delete">✕</button>
+              </div>
+              <textarea value={c.text} placeholder="Note / Remark…" style={{ color: contrast }} onChange={e => updateComment(activeId, c.id, { text: e.target.value })}/>
             </div>
-            <textarea value={c.text} placeholder="Comment…" onChange={e => updateComment(activeId, c.id, { text: e.target.value })}/>
-          </div>
-        ))}
+          );
+        })}
 
         {/* Right-click menu — reuses BPMN's own .bpmn-context-menu chrome
             directly (pure visual shell, not coupled to BPMN's data, so
             sharing the class is safe and avoids re-styling the same box
             twice — per the user's "don't reinvent the wheel" direction). */}
-        {contextMenu && (
-          <div className="bpmn-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }}
-            onClick={e => e.stopPropagation()}>
-            {contextMenu.type === 'node' ? (
-              <>
-                {contextMenuNames.length > 1 && (
-                  <div className="bpmn-context-menu-label">{contextMenuNames.length} states</div>
-                )}
-                {(() => {
-                  // Informational/navigation only — never creates anything. The
-                  // diamond exists purely because this state already has 2+ real
-                  // outgoing transitions (Decision 5); this block just surfaces
-                  // that pre-existing, auto-detected fact. Reuses statesWithMeta's
-                  // already-computed isDiamond/diamondTitle rather than
-                  // recomputing a third time, per the task's own instruction.
-                  // Matches BPMN's own precedent (the Detach button) for content
-                  // that doesn't apply here — omitted entirely, not shown disabled.
-                  if (contextMenuNames.length !== 1) return null;
-                  const meta = statesWithMeta.find(s => s.name === contextMenuNames[0]);
-                  if (!meta?.isDiamond) return null;
-                  const branches = wf.transitions.filter(t => t.from === meta.name);
-                  return (
-                    <>
-                      <div className="bpmn-context-menu-label"><Diamond size={9} className="mflow-diamond-badge"/> Diamond (auto-detected)</div>
-                      <div className="mflow-menu-diamond-info">{meta.diamondTitle}</div>
-                      {branches.length > 0 && (
-                        <>
-                          <div className="bpmn-context-menu-label">Branches</div>
-                          {branches.map(t => (
-                            <button type="button" key={t.id} onClick={() => { panToState(t.to); setContextMenu(null); }}>
-                              → {t.to || '(unnamed)'}
-                            </button>
-                          ))}
-                        </>
-                      )}
-                      <div className="bpmn-context-menu-divider"/>
-                    </>
-                  );
-                })()}
-                {(() => {
-                  // Hub mirror of the diamond block above — same reused-not-
-                  // recomputed statesWithMeta lookup, same omit-when-not-
-                  // applicable convention (BPMN's Detach precedent), same
-                  // "real data, no creation" rule. Renders independently of
-                  // the diamond block — both show together when a state is
-                  // genuinely both (verified in the dual-signal test).
-                  if (contextMenuNames.length !== 1) return null;
-                  const meta = statesWithMeta.find(s => s.name === contextMenuNames[0]);
-                  if (!meta?.isHub) return null;
-                  const sources = wf.transitions.filter(t => t.to === meta.name);
-                  return (
-                    <>
-                      <div className="bpmn-context-menu-label"><GitMerge size={9} className="mflow-hub-badge"/> Hub (auto-detected)</div>
-                      <div className="mflow-menu-diamond-info">{meta.hubTitle}</div>
-                      {sources.length > 0 && (
-                        <>
-                          <div className="bpmn-context-menu-label">Sources</div>
-                          {sources.map(t => (
-                            <button type="button" key={t.id} onClick={() => { panToState(t.from); setContextMenu(null); }}>
-                              ← {t.from || '(unnamed)'}
-                            </button>
-                          ))}
-                        </>
-                      )}
-                      <div className="bpmn-context-menu-divider"/>
-                    </>
-                  );
-                })()}
-                <button type="button" onClick={handleEditSelected} disabled={contextMenuNames.length !== 1}>✎ Edit</button>
-                <button type="button" onClick={handleDuplicateSelected}>⧉ Duplicate</button>
-                <button type="button" onClick={() => handleGroupSelected(contextMenuNames)} disabled={contextMenuNames.length < 2}
-                  title={contextMenuNames.length < 2 ? 'Select 2 or more states to group them' : 'Highlight these states as one labeled process group'}>▭ Group</button>
-                {selectionHasGroupedMember && (
-                  <button type="button" onClick={() => handleUngroupSelected(contextMenuNames)} title="Remove the process-group highlight from the selected state(s)">▭ Ungroup</button>
-                )}
-                <div className="bpmn-context-menu-divider"/>
-                <div className="bpmn-context-menu-label">Background color</div>
-                <div className="mflow-menu-swatches">
-                  {PRESET_COLORS.map(({ name, hex }) => (
-                    <button type="button" key={hex} className="mflow-menu-swatch" style={{ background: hex }}
-                      title={name} onClick={() => handleSetColorSelected(hex)}/>
-                  ))}
-                  <button type="button" className="mflow-menu-swatch mflow-menu-swatch-clear"
-                    title="Clear background color" onClick={() => handleSetColorSelected(null)}>✕</button>
-                </div>
-                <div className="bpmn-context-menu-divider"/>
-                <button type="button" onClick={handleDeleteSelected}>✕ Delete</button>
-              </>
-            ) : contextMenu.type === 'comment' ? (
+        {contextMenu && (() => {
+          const menuWidth = 190;
+          const menuHeight = 310;
+          const left = Math.max(10, Math.min(contextMenu.x, window.innerWidth - menuWidth - 20));
+          const top = Math.max(10, Math.min(contextMenu.y, window.innerHeight - menuHeight - 20));
+          return (
+            <div className="bpmn-context-menu" style={{ left, top }}
+              onClick={e => e.stopPropagation()}>
+            {contextMenu.type === 'node' ? (() => {
+              const st = wf?.states.find(s => s.name === contextMenuNames[0]);
+              return (
+                <>
+                  <div className="bpmn-context-menu-label">
+                    {contextMenuNames.length > 1
+                      ? `${contextMenuNames.length} states selected`
+                      : (() => {
+                          const meta = statesWithMeta.find(s => s.name === contextMenuNames[0]);
+                          const typeLabel = meta?.isDiamond ? 'Diamond' : 'State';
+                          return `${typeLabel}: ${contextMenuNames[0] || '(unnamed)'}`;
+                        })()}
+                  </div>
+                  {contextMenu.editing === 'name' ? (
+                    <input
+                      className="mflow-menu-input"
+                      autoFocus
+                      defaultValue={st?.name || ''}
+                      onClick={e => e.stopPropagation()}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          const val = e.target.value.trim();
+                          if (val && st && val !== st.name) {
+                            takeSnapshot();
+                            renameState(activeId, st.id, val);
+                          }
+                          setContextMenu(null);
+                        } else if (e.key === 'Escape') {
+                          setContextMenu(null);
+                        }
+                      }}
+                      onBlur={e => {
+                        const val = e.target.value.trim();
+                        if (val && st && val !== st.name) {
+                          takeSnapshot();
+                          renameState(activeId, st.id, val);
+                        }
+                        setContextMenu(null);
+                      }}
+                    />
+                  ) : (
+                    <button type="button" onClick={() => setContextMenu(prev => ({ ...prev, editing: 'name' }))} disabled={contextMenuNames.length !== 1}>✎ Edit Name</button>
+                  )}
+                  <div className="bpmn-context-menu-divider"/>
+                  <div className="bpmn-context-menu-label">Background color</div>
+                  <div className="mflow-menu-swatches">
+                    {PRESET_COLORS.map(({ name, hex }) => (
+                      <button type="button" key={hex} className="mflow-menu-swatch" style={{ background: hex }}
+                        title={name} onClick={() => handleSetColorSelected(hex)}/>
+                    ))}
+                    <button type="button" className="mflow-menu-swatch mflow-menu-swatch-clear"
+                      title="Clear background color" onClick={() => handleSetColorSelected(null)}>✕</button>
+                  </div>
+                  <div className="bpmn-context-menu-divider"/>
+                  <button type="button" onClick={handleDeleteSelected}>✕ Delete</button>
+                </>
+              );
+            })() : contextMenu.type === 'comment' ? (
               <>
                 <div className="bpmn-context-menu-label">Background color</div>
                 <div className="mflow-menu-swatches">
@@ -1455,37 +1581,147 @@ export default function MFlowCanvas() {
                 <div className="bpmn-context-menu-divider"/>
                 <button type="button" onClick={() => { takeSnapshot(); deleteComment(activeId, contextMenu.commentId); setContextMenu(null); }}>✕ Delete</button>
               </>
-            ) : contextMenu.type === 'edge' ? (
-              // Mirrors BPMN Standard's real edge menu (checked directly:
-              // Edit label / Duplicate / Delete / divider / Undo-Redo)
-              // scoped down to what actually applies here. Edit sets a
-              // plain, cosmetic `label` field (same rename-via-prompt()
-              // pattern as a state's own Edit) — distinct from `conditions`,
-              // the real grammar field (after()/if()/script()/role()) that
-              // drives TriggerMode/dashing/diamond semantics, which stays
-              // Studio-only and untouched by this. Duplicating a transition
-              // has no clear meaning in a state machine the way duplicating
-              // a task node does, so there's no Duplicate here. Delete is
-              // the other real capability; Undo/Redo come for free from the
-              // shared block below, same as every other menu type.
-              <>
-                <div className="bpmn-context-menu-label">
-                  {(() => {
-                    const t = wf?.transitions.find(t => t.id === contextMenu.transId);
-                    return t?.label ? t.label : `${contextMenu.fromName || '(unnamed)'} → ${contextMenu.toName || '(unnamed)'}`;
-                  })()}
-                </div>
-                <button type="button" onClick={handleEditTransitionLabel}>✎ Edit</button>
-                <button type="button" onClick={handleDeleteEdge}>✕ Delete</button>
-              </>
-            ) : (
+            ) : contextMenu.type === 'edge' ? (() => {
+              const t = wf?.transitions.find(t => t.id === contextMenu.transId);
+              const hasLabel = !!t?.label;
+              const isAuto = t?.style === 'automatic';
+              const activeTab = contextMenu.tab || 'general';
+              return (
+                <>
+                  <div className="bpmn-context-menu-label">
+                    {t?.label ? `Transition: "${t.label}"` : `Transition: ${contextMenu.fromName || '(unnamed)'} → ${contextMenu.toName || '(unnamed)'}`}
+                  </div>
+                  
+                  {/* Tab Selector */}
+                  <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '6px' }}>
+                    <button type="button" 
+                      style={{
+                        flex: 1, textAlign: 'center', padding: '6px 4px', fontSize: '9.5px', borderRadius: 0,
+                        color: activeTab === 'general' ? 'var(--a3)' : 'var(--dim)',
+                        borderBottom: activeTab === 'general' ? '2px solid var(--a3)' : '2px solid transparent',
+                        background: 'none', fontWeight: activeTab === 'general' ? 'bold' : 'normal'
+                      }}
+                      onClick={(e) => { e.stopPropagation(); setContextMenu(prev => ({ ...prev, tab: 'general', editing: null })); }}>
+                      General
+                    </button>
+                    <button type="button" 
+                      style={{
+                        flex: 1, textAlign: 'center', padding: '6px 4px', fontSize: '9.5px', borderRadius: 0,
+                        color: activeTab === 'advanced' ? 'var(--a3)' : 'var(--dim)',
+                        borderBottom: activeTab === 'advanced' ? '2px solid var(--a3)' : '2px solid transparent',
+                        background: 'none', fontWeight: activeTab === 'advanced' ? 'bold' : 'normal'
+                      }}
+                      onClick={(e) => { e.stopPropagation(); setContextMenu(prev => ({ ...prev, tab: 'advanced', editing: null })); }}>
+                      Advanced
+                    </button>
+                  </div>
+
+                  {activeTab === 'general' ? (
+                    <>
+                      {contextMenu.editing === 'name' ? (
+                        <input
+                          className="mflow-menu-input"
+                          autoFocus
+                          placeholder="Transition name…"
+                          defaultValue={t?.label || ''}
+                          onClick={e => e.stopPropagation()}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              const val = e.target.value.trim();
+                              if (t) {
+                                takeSnapshot();
+                                updateTransition(activeId, t.id, { label: val || null });
+                              }
+                              setContextMenu(null);
+                            } else if (e.key === 'Escape') {
+                              setContextMenu(null);
+                            }
+                          }}
+                          onBlur={e => {
+                            const val = e.target.value.trim();
+                            if (t) {
+                              takeSnapshot();
+                              updateTransition(activeId, t.id, { label: val || null });
+                            }
+                            setContextMenu(null);
+                          }}
+                        />
+                      ) : (
+                        <button type="button" onClick={() => setContextMenu(prev => ({ ...prev, editing: 'name' }))}>
+                          {hasLabel ? '✎ Edit Name' : '✎ Add Name'}
+                        </button>
+                      )}
+                      <div className="bpmn-context-menu-divider"/>
+                      <div className="bpmn-context-menu-label">Transition line color</div>
+                      <div className="mflow-menu-swatches">
+                        {PRESET_COLORS.map(({ name, hex }) => (
+                          <button type="button" key={hex} className="mflow-menu-swatch" style={{ background: hex }}
+                            title={name} onClick={() => { takeSnapshot(); updateTransition(activeId, contextMenu.transId, { color: hex }); setContextMenu(null); }}/>
+                        ))}
+                        <button type="button" className="mflow-menu-swatch mflow-menu-swatch-clear"
+                          title="Clear color" onClick={() => { takeSnapshot(); updateTransition(activeId, contextMenu.transId, { color: null }); setContextMenu(null); }}>✕</button>
+                      </div>
+                      <div className="bpmn-context-menu-divider"/>
+                      <div className="bpmn-context-menu-label">Label background color</div>
+                      <div className="mflow-menu-swatches">
+                        {PRESET_COLORS.map(({ name, hex }) => (
+                          <button type="button" key={hex} className="mflow-menu-swatch" style={{ background: hex }}
+                            title={name} onClick={() => { takeSnapshot(); updateTransition(activeId, contextMenu.transId, { labelColor: hex }); setContextMenu(null); }}/>
+                        ))}
+                        <button type="button" className="mflow-menu-swatch mflow-menu-swatch-clear"
+                          title="Clear label background color" onClick={() => { takeSnapshot(); updateTransition(activeId, contextMenu.transId, { labelColor: null }); setContextMenu(null); }}>✕</button>
+                      </div>
+                      <button type="button" onClick={handleDeleteEdge}>✕ Delete</button>
+                    </>
+                  ) : (
+                    <>
+                      {contextMenu.editing === 'condition' ? (
+                        <input
+                          className="mflow-menu-input"
+                          autoFocus
+                          placeholder="Condition: after(3d), if(P=V)…"
+                          defaultValue={t?.conditions || ''}
+                          onClick={e => e.stopPropagation()}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              const val = e.target.value.trim();
+                              if (t) {
+                                takeSnapshot();
+                                updateTransition(activeId, t.id, { conditions: val || null });
+                              }
+                              setContextMenu(null);
+                            } else if (e.key === 'Escape') {
+                              setContextMenu(null);
+                            }
+                          }}
+                          onBlur={e => {
+                            const val = e.target.value.trim();
+                            if (t) {
+                              takeSnapshot();
+                              updateTransition(activeId, t.id, { conditions: val || null });
+                            }
+                            setContextMenu(null);
+                          }}
+                        />
+                      ) : (
+                        <button type="button" onClick={() => setContextMenu(prev => ({ ...prev, editing: 'condition' }))}>✎ Transition Condition</button>
+                      )}
+                      <button type="button" onClick={handleToggleTransitionStyle}>
+                        {isAuto ? '⇎ Set to Manual (Solid)' : '⇢ Set to Automatic (Dashed)'}
+                      </button>
+                    </>
+                  )}
+                </>
+              );
+            })() : (
               <button type="button" onClick={handleSelectAll}>Select All</button>
             )}
             <div className="bpmn-context-menu-divider"/>
             <button type="button" onClick={() => { undo(); setContextMenu(null); }} disabled={!canUndo}>↺ Undo</button>
             <button type="button" onClick={() => { redo(); setContextMenu(null); }} disabled={!canRedo}>↻ Redo</button>
           </div>
-        )}
+          );
+        })()}
 
         {/* Floating multi-select toolbar — appears once 2+ states are
             selected, matching BPMN Standard's SelectedNodesToolbar trigger
@@ -1623,7 +1859,7 @@ export default function MFlowCanvas() {
     </Panel>
     <PanelResizeHandle className="mflow-split-handle"/>
     <Panel defaultSize={45} minSize={20} className="mflow-split-right">
-      <LiveTranslationView plan={translationPlan} error={translationError} isTranslating={isTranslating} version={translationVersion} hoveredStateKey={hoveredStateKey}/>
+      <LiveTranslationView plan={translationPlan} error={translationError} isTranslating={isTranslating} version={translationVersion} hoveredStateKey={hoveredStateKey} onForceRefresh={() => setRefreshTrigger(v => v + 1)}/>
     </Panel>
     </PanelGroup>
   );

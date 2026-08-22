@@ -8,7 +8,7 @@
 // The two canvases render through genuinely different paradigms — imperative
 // DOM post-processing vs. declarative JSX — so this exports the shared visual
 // constants plus the DOM-injection function the M-Files canvas needs. The BPMN
-// canvas's custom edge component (src/components/bpmn/FlowEdge.jsx) builds the
+// canvas's custom edge component (src/features/edges/FlowEdge.jsx) builds the
 // equivalent markup directly as JSX rather than forcing one call site across
 // both; they still render the identical <circle><animateMotion><mpath> shape.
 //

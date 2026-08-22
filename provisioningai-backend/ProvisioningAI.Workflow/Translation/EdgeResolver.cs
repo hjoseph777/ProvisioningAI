@@ -14,6 +14,7 @@ public static class EdgeResolver
     private static readonly Regex After = new(@"^after\((\d+)d\)$", RegexOptions.Compiled);
     private static readonly Regex If = new(@"^if\(([^=]+)=(.+)\)$", RegexOptions.Compiled);
     private static readonly Regex Script = new(@"^script\(([^)]+)\)$", RegexOptions.Compiled);
+    private static readonly Regex NameConditionSplit = new(@"^(.*)\[(.*)\]$", RegexOptions.Compiled);
 
     // §3.5 Decision 6: TriggerMode confirmed automatic, TriggerCriteria specifically not
     // decoded. Argument is the real stored TriggerMode integer (4 or 5) — a structured,
@@ -63,18 +64,39 @@ public static class EdgeResolver
         var (label, evaluationPriority) = ExtractPriority(rawLabel);
         var edgeRef = $"{edge.From} --> {edge.To}";
 
-        // --- No label at all: §3.5's own first table row (`StateA --> StateB`, no label),
-        // a deliberate, lossless encoding of a manual transition — NOT a fallback. §6.4
-        // explicitly lists the plain unlabeled edge among the "lossless, unambiguous"
-        // cases, distinct from the freeform-prose fallback below. See the accompanying
-        // report: conflating these two was this implementation's first real ambiguity.
-        if (string.IsNullOrEmpty(label))
+        string? name = null;
+        string? condition = null;
+
+        if (!string.IsNullOrEmpty(label))
+        {
+            var splitMatch = NameConditionSplit.Match(label);
+            if (splitMatch.Success)
+            {
+                name = splitMatch.Groups[1].Value.Trim();
+                condition = splitMatch.Groups[2].Value.Trim();
+
+                if (string.IsNullOrEmpty(name)) name = null;
+                if (string.IsNullOrEmpty(condition)) condition = null;
+            }
+            else
+            {
+                // Legacy fallback: treat the entire label as the condition.
+                condition = label;
+            }
+        }
+
+        // --- No logical condition: either no label at all, or a purely cosmetic transition name.
+        // Both encode a manual transition — NOT a fallback.
+        if (string.IsNullOrEmpty(condition))
         {
             return new PlannedTransition
             {
                 FromState = edge.From,
                 ToState = edge.To,
-                RuleApplied = "Manual transition (§3.5 table row 1 — no label)",
+                Name = name,
+                RuleApplied = string.IsNullOrEmpty(name)
+                    ? "Manual transition (§3.5 table row 1 — no label)"
+                    : $"Manual transition with name \"{name}\" (§3.5)",
                 TriggerMode = TriggerMode.Manual,
                 EvaluationPriority = evaluationPriority,
                 OriginalLabel = rawLabel,
@@ -82,7 +104,7 @@ public static class EdgeResolver
             };
         }
 
-        var esignMatch = RoleEsign.Match(label);
+        var esignMatch = RoleEsign.Match(condition);
         if (esignMatch.Success)
         {
             var group = esignMatch.Groups[1].Value;
@@ -90,6 +112,7 @@ public static class EdgeResolver
             {
                 FromState = edge.From,
                 ToState = edge.To,
+                Name = name,
                 RuleApplied = "Restricted-permission transition + Electronic Signature (§3.5, §2.1)",
                 TriggerMode = TriggerMode.Manual,
                 EvaluationPriority = evaluationPriority,
@@ -105,7 +128,7 @@ public static class EdgeResolver
             };
         }
 
-        var roleMatch = Role.Match(label);
+        var roleMatch = Role.Match(condition);
         if (roleMatch.Success)
         {
             var group = roleMatch.Groups[1].Value;
@@ -113,6 +136,7 @@ public static class EdgeResolver
             {
                 FromState = edge.From,
                 ToState = edge.To,
+                Name = name,
                 RuleApplied = "Restricted-permission (human) transition (§3.5)",
                 TriggerMode = TriggerMode.Manual,
                 EvaluationPriority = evaluationPriority,
@@ -123,7 +147,7 @@ public static class EdgeResolver
             };
         }
 
-        var afterMatch = After.Match(label);
+        var afterMatch = After.Match(condition);
         if (afterMatch.Success)
         {
             var days = int.Parse(afterMatch.Groups[1].Value);
@@ -131,6 +155,7 @@ public static class EdgeResolver
             {
                 FromState = edge.From,
                 ToState = edge.To,
+                Name = name,
                 RuleApplied = "Time-based automatic (§3.5)",
                 TriggerMode = TriggerMode.AutomaticCriteria,
                 EvaluationPriority = evaluationPriority,
@@ -140,7 +165,7 @@ public static class EdgeResolver
             };
         }
 
-        var ifMatch = If.Match(label);
+        var ifMatch = If.Match(condition);
         if (ifMatch.Success)
         {
             var property = ifMatch.Groups[1].Value.Trim();
@@ -149,6 +174,7 @@ public static class EdgeResolver
             {
                 FromState = edge.From,
                 ToState = edge.To,
+                Name = name,
                 RuleApplied = "Criteria-based automatic (§3.5)",
                 TriggerMode = TriggerMode.AutomaticCriteria,
                 EvaluationPriority = evaluationPriority,
@@ -165,7 +191,7 @@ public static class EdgeResolver
             };
         }
 
-        var autoMatch = Auto.Match(label);
+        var autoMatch = Auto.Match(condition);
         if (autoMatch.Success)
         {
             var mode = int.Parse(autoMatch.Groups[1].Value);
@@ -174,6 +200,7 @@ public static class EdgeResolver
             {
                 FromState = edge.From,
                 ToState = edge.To,
+                Name = name,
                 RuleApplied = "Automatic transition, mechanism confirmed — specific criteria not decoded (§3.5 Decision 6)",
                 TriggerMode = triggerMode,
                 EvaluationPriority = evaluationPriority,
@@ -188,16 +215,16 @@ public static class EdgeResolver
             };
         }
 
-        var scriptMatch = Script.Match(label);
+        var scriptMatch = Script.Match(condition);
         if (scriptMatch.Success)
         {
-            var name = scriptMatch.Groups[1].Value;
-            if (!sidecar.Scripts.TryGetValue(name, out var body))
+            var nameVal = scriptMatch.Groups[1].Value;
+            if (!sidecar.Scripts.TryGetValue(nameVal, out var body))
             {
                 issues.Add(new ValidationIssue(
                     IssueSeverity.Error,
                     "UNRESOLVED_SCRIPT_REFERENCE",
-                    $"script({name}) on edge {edgeRef} has no matching body in the sidecar file. " +
+                    $"script({nameVal}) on edge {edgeRef} has no matching body in the sidecar file. " +
                     "A diagram with script(...) labels but no matching sidecar entry is incomplete for " +
                     "import — the importer has no source for TriggerAllowedByVBScript (§3.5).",
                     edgeRef));
@@ -206,10 +233,11 @@ public static class EdgeResolver
                 {
                     FromState = edge.From,
                     ToState = edge.To,
+                    Name = name,
                     RuleApplied = "VBScript-gated (§3.5) — UNRESOLVED, script body missing from sidecar",
                     TriggerMode = TriggerMode.AutomaticVBScript,
                     EvaluationPriority = evaluationPriority,
-                    VBScriptName = name,
+                    VBScriptName = nameVal,
                     VBScriptBody = null,
                     TriggerInDaysNote =
                         "Unresolved — §6.4 point 3 leaves TriggerInDays on mode-5 (VBScript-gated) edges as a " +
@@ -224,14 +252,10 @@ public static class EdgeResolver
             var flags = new List<string>();
             if (body.Contains("NextStateID", StringComparison.Ordinal))
             {
-                // §1.3, confirmed finding: a drawn arrow is a guaranteed destination only if
-                // no VBScript on that edge reassigns NextStateID. This tool can at least
-                // check the script text it was given for that literal token — it cannot
-                // simulate what a not-yet-built vault's script will do at runtime.
                 issues.Add(new ValidationIssue(
                     IssueSeverity.Warning,
                     "SCRIPT_MAY_OVERRIDE_DESTINATION",
-                    $"script({name}) on edge {edgeRef} contains \"NextStateID\" — per §1.3, this script may " +
+                    $"script({nameVal}) on edge {edgeRef} contains \"NextStateID\" — per §1.3, this script may " +
                     "redirect the object to a state other than the diagram-drawn destination at runtime. " +
                     $"The planned destination ({edge.To}) is not a guaranteed outcome.",
                     edgeRef));
@@ -242,10 +266,11 @@ public static class EdgeResolver
             {
                 FromState = edge.From,
                 ToState = edge.To,
+                Name = name,
                 RuleApplied = "VBScript-gated (§3.5)",
                 TriggerMode = TriggerMode.AutomaticVBScript,
                 EvaluationPriority = evaluationPriority,
-                VBScriptName = name,
+                VBScriptName = nameVal,
                 VBScriptBody = body,
                 TriggerCriteriaNote = "Not applicable — TriggerMode 5 uses the script body, not a search condition (§1.1).",
                 TriggerInDaysNote =
@@ -258,22 +283,19 @@ public static class EdgeResolver
             };
         }
 
-        // --- Present, non-empty label that matched none of §3.5's grammars: this is the
-        // genuine "freeform Mermaid can only produce a structural skeleton" case (§3.5,
-        // §6.2's `if reviewer rejects` edge, §6.4 point 1). Distinct from the no-label case
-        // above — this one really is a fallback, and the original text is preserved so a
-        // human can decide which of the plausible real configurations was intended.
+        // --- Present, non-empty condition that matched none of §3.5's grammars:
         return new PlannedTransition
         {
             FromState = edge.From,
             ToState = edge.To,
-            RuleApplied = "UNRECOGNIZED LABEL — does not match any §3.5 grammar",
+            Name = name,
+            RuleApplied = "UNRECOGNIZED CONDITION — does not match any §3.5 grammar",
             TriggerMode = TriggerMode.Manual,
             EvaluationPriority = evaluationPriority,
             OriginalLabel = rawLabel,
             IsSkeleton = true,
             SkeletonReason =
-                $"Label \"{rawLabel}\" is prose, not the if(Property=Value)/after(Nd)/script(Name)/role(X) " +
+                $"Condition \"{condition}\" is prose, not the if(Property=Value)/after(Nd)/script(Name)/role(X) " +
                 "grammar. Per §3.5/§6.2/§6.4: a strict importer refuses to guess and produces a bare " +
                 "skeleton (TriggerMode=0, no TriggerCriteria, no Permissions restriction). The intended " +
                 "semantic is silently dropped and must be resolved by a human, not guessed by this tool.",

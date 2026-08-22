@@ -87,6 +87,33 @@ public sealed class TranslationPipelineTests
     }
 
     [Fact]
+    public void CosmeticNameAndConditionSplit_ResolvesNameAndConditionCorrectly()
+    {
+        var edge = new CandidateEdge("StateA", "StateB", "test3 [after(3d)]", 1);
+        var issues = new List<ValidationIssue>();
+        var t = EdgeResolver.Resolve(edge, new SidecarConfig(), issues);
+
+        Assert.Equal(TriggerMode.AutomaticCriteria, t.TriggerMode);
+        Assert.Equal(3, t.TriggerInDays);
+        Assert.Equal("test3", t.Name);
+        Assert.False(t.IsSkeleton);
+
+        var edgeManual = new CandidateEdge("StateA", "StateB", "test3 []", 1);
+        var tManual = EdgeResolver.Resolve(edgeManual, new SidecarConfig(), issues);
+
+        Assert.Equal(TriggerMode.Manual, tManual.TriggerMode);
+        Assert.Equal("test3", tManual.Name);
+        Assert.False(tManual.IsSkeleton);
+
+        var edgeInvalid = new CandidateEdge("StateA", "StateB", "test3 [invalid_syntax]", 1);
+        var tInvalid = EdgeResolver.Resolve(edgeInvalid, new SidecarConfig(), issues);
+
+        Assert.Equal(TriggerMode.Manual, tInvalid.TriggerMode);
+        Assert.Equal("test3", tInvalid.Name);
+        Assert.True(tInvalid.IsSkeleton);
+    }
+
+    [Fact]
     public void RoleEdge_ResolvesToManualWithRestrictedPermissions()
     {
         var plan = TranslationPipeline.Translate(Section6Diagram, Section6Sidecar);

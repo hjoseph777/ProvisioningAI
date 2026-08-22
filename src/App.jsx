@@ -409,6 +409,7 @@ path.transition.highlight {
 .mflow-comment-del{background:none;border:none;color:var(--mid);cursor:pointer;font-size:9px;padding:2px 3px;line-height:1}
 .mflow-comment-del:hover{color:var(--red)}
 .mflow-comment textarea{width:100%;min-height:32px;border:none;background:transparent;color:var(--text);font-family:var(--mono);font-size:9px;padding:5px;resize:vertical;outline:none;line-height:1.4}
+.mflow-comment textarea::placeholder{color:inherit;opacity:0.5}
 /* overflow:hidden, not auto — pan is now a free transform on the SVG
    itself (see MFlowCanvas.jsx's panRef), not native scroll, so there's no
    scrollable overflow to expose a scrollbar for; hidden just clips
@@ -447,6 +448,8 @@ path.transition.highlight {
    Standard's own FlowEdge.jsx widens its interaction stroke: a thin visible
    line is a poor mouse/Playwright target on its own. */
 .mflow-edge-hit{stroke:transparent;stroke-width:14px;cursor:context-menu;pointer-events:stroke}
+.mflow-edge-hit:hover{cursor:pointer}
+path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:3px !important;filter:drop-shadow(0 0 5px rgba(74,159,255,0.7))}
 /* Reconnect handles — sit right at an edge's own start/end point. Unlike
    .mflow-connect-handle (hidden until the NODE is hovered), these stay
    dimly visible always, since they're small and easy to miss otherwise —
@@ -809,6 +812,8 @@ path.transition.highlight {
 }
 .bpmn-context-menu button:hover{ background:var(--s4); color:var(--a3); }
 .bpmn-context-menu button:disabled{ color:var(--dim); cursor:not-allowed; background:none; }
+.mflow-menu-input{ background:var(--s2); border:1px solid var(--border); border-radius:5px; color:var(--text); font-family:var(--mono); font-size:10px; padding:5px 8px; margin:2px; outline:none; width:calc(100% - 4px); box-sizing:border-box; }
+.mflow-menu-input:focus{ border-color:var(--a3); box-shadow:0 0 4px rgba(74,159,255,0.4); }
 .bpmn-context-menu-divider{ height:1px; background:var(--border); margin:3px 2px; }
 .bpmn-context-menu-label{
   padding:5px 10px 2px; color:var(--a3); font-family:var(--mono); font-size:9.5px; font-weight:600;

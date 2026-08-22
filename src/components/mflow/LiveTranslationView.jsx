@@ -83,6 +83,7 @@ function layoutPlan(plan) {
 function edgeLabel(t) {
   if (t.IsSkeleton) return `⚠ unparsed: "${t.OriginalLabel || ''}"`;
   const parts = [];
+  if (t.Name) parts.push(t.Name);
   if (t.TriggerCriteria) parts.push(`if(${t.TriggerCriteria.Property}=${t.TriggerCriteria.Value})`);
   else if (t.TriggerInDays != null) parts.push(`after(${t.TriggerInDays}d)`);
   else if (t.VBScriptName) parts.push(`script(${t.VBScriptName})`);
@@ -244,7 +245,7 @@ function FlattenedPlan({ plan, hoveredStateKey }) {
         : <div className="mflow-ltv-transitions">
             {plan.Transitions.map((t, i) => (
               <div key={i} className="mflow-ltv-trans-row">
-                <div className="mflow-ltv-trans-path">{t.FromState} <span className="mflow-ltv-arrow">→</span> {t.ToState}</div>
+                <div className="mflow-ltv-trans-path">{t.FromState} <span className="mflow-ltv-arrow">→</span> {t.ToState}{t.Name && <span className="mflow-ltv-trans-name" style={{ marginLeft: '8px', color: '#60a5fa', fontWeight: 'normal', fontSize: '0.9em' }}>"{t.Name}"</span>}</div>
                 <div className="mflow-ltv-trans-meta">
                   <TriggerModeChip mode={t.TriggerMode} />
                   {t.EvaluationPriority !== 100 && <span className="mflow-ltv-chip" title="§1.6 EvaluationPriority">priority {t.EvaluationPriority}</span>}
@@ -287,7 +288,7 @@ function ValidationPlan({ plan }) {
   );
 }
 
-export default function LiveTranslationView({ plan, error, isTranslating, version, hoveredStateKey }) {
+export default function LiveTranslationView({ plan, error, isTranslating, version, hoveredStateKey, onForceRefresh }) {
   // 'diagram' is the default — the new M-Files Diagram tab replaces
   // Flattened as the first thing shown when the panel appears. Flattened
   // itself is untouched, just no longer first.
@@ -304,7 +305,23 @@ export default function LiveTranslationView({ plan, error, isTranslating, versio
             Validation{plan?.ValidationIssues?.length > 0 ? ` (${plan.ValidationIssues.length})` : ''}
           </button>
         </div>
-        {isTranslating && <span className="mflow-ltv-syncing"><RefreshCw size={11} className="mflow-ltv-spin"/> Translating…</span>}
+        
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {isTranslating && <span className="mflow-ltv-syncing"><RefreshCw size={11} className="mflow-ltv-spin"/> Translating…</span>}
+          <button type="button" 
+            title="Force rebuild translation"
+            style={{
+              fontSize: '9.5px', fontFamily: 'var(--mono)', padding: '4px 8px', borderRadius: '3px',
+              border: '1px solid var(--border)', background: 'var(--s3)', color: 'var(--mid)', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: '4px', transition: 'all 0.15s'
+            }}
+            onMouseEnter={e => { e.currentTarget.style.color = 'var(--text)'; e.currentTarget.style.borderColor = 'var(--a3)'; }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'var(--mid)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
+            onClick={onForceRefresh}>
+            <RefreshCw size={10} className={isTranslating ? 'mflow-ltv-spin' : ''}/>
+            Force Refresh
+          </button>
+        </div>
       </div>
 
       {error && <div className="mflow-ltv-error">{error}</div>}

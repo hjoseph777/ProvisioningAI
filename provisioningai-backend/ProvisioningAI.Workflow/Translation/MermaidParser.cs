@@ -77,6 +77,12 @@ public static class MermaidParser
             if (line.Length == 0) continue;
             if (line.Equals("stateDiagram-v2", StringComparison.OrdinalIgnoreCase)) continue;
             if (line.StartsWith("%%", StringComparison.Ordinal)) continue; // Mermaid comment
+            if (line.StartsWith("classDef ", StringComparison.Ordinal) ||
+                line.StartsWith("class ", StringComparison.Ordinal) ||
+                line.StartsWith("style ", StringComparison.Ordinal) ||
+                line.StartsWith("linkStyle ", StringComparison.Ordinal) ||
+                line.StartsWith("direction ", StringComparison.Ordinal)) continue;
+
 
             var choiceMatch = ChoiceDecl.Match(line);
             if (choiceMatch.Success)
