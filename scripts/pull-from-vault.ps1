@@ -39,8 +39,8 @@ try {
         pLog "Auth: Windows SSO (MFAuthType=1)"
         $vault = $srvApp.LogInAsUserToVault($VaultGuid, $null, 1, $null, $null, $null)
     } else {
-        pLog "Auth: M-Files user '$Username' (MFAuthType=2)"
-        $vault = $srvApp.LogInAsUserToVault($VaultGuid, $null, 2, $Username, $Password, $null)
+        pLog "Auth: M-Files user '$Username' (MFAuthType=3)"
+        $vault = $srvApp.LogInAsUserToVault($VaultGuid, $null, 3, $Username, $Password, $null)
     }
     pLog "Connected to vault."
 

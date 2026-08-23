@@ -157,6 +157,7 @@ ipcMain.handle('mfiles:push', async (event, payload) => {
 ipcMain.handle('mfiles:list-workflows', async (_event, { vaultGuid, server, authType, username, password }) => {
   return new Promise((resolve) => {
     let resultJson = '';
+    let lastError = '';
     const ps = spawn('powershell.exe', [
       '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
       '-File',          scriptPath('pull-from-vault.ps1'),
@@ -172,8 +173,13 @@ ipcMain.handle('mfiles:list-workflows', async (_event, { vaultGuid, server, auth
       const text = d.toString();
       if (text.includes('[RESULT]')) {
         resultJson += text.substring(text.indexOf('[RESULT]') + 8);
+      } else {
+        text.split('\n').filter(l => l.trim()).forEach(line => {
+          if (line.includes('[ERROR]')) lastError = line.replace(/\[ERROR\]\s*/, '').trim();
+        });
       }
     });
+    ps.stderr.on('data', d => { lastError = d.toString().trim() || lastError; });
 
     ps.on('close', (code) => {
       if (code === 0 && resultJson) {
@@ -185,7 +191,7 @@ ipcMain.handle('mfiles:list-workflows', async (_event, { vaultGuid, server, auth
           resolve({ ok: false, error: 'Failed to parse JSON from PowerShell' });
         }
       } else {
-        resolve({ ok: false, error: 'Failed to list workflows from vault' });
+        resolve({ ok: false, error: lastError || 'Failed to list workflows from vault' });
       }
     });
   });
