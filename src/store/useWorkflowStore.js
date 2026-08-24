@@ -221,11 +221,19 @@ export const useWorkflowStore = create(persist((set, get) => ({
   // ── State CRUD ─────────────────────────────────────────────
   // Optional patch lets callers (e.g. the palette's "+ Initial State" tile)
   // set fields on the new state without a separate updateState round-trip.
-  addState: (wfId, patch = {}) => set(s => ({
-    workflows: s.workflows.map(w => w.id !== wfId ? w : {
-      ...w, states: [...w.states, { id: makeId(), name: '', initial: false, ...patch }]
-    })
-  })),
+  // Returns the new state's id — same precedent as duplicateState below —
+  // so a caller that needs to act on this specific new state afterward (e.g.
+  // Studio's canvas palette repositioning it near itself once the diagram
+  // has actually re-rendered) doesn't have to re-derive which row is new.
+  addState: (wfId, patch = {}) => {
+    const newId = makeId();
+    set(s => ({
+      workflows: s.workflows.map(w => w.id !== wfId ? w : {
+        ...w, states: [...w.states, { id: newId, name: '', initial: false, ...patch }]
+      })
+    }));
+    return newId;
+  },
 
   updateState: (wfId, stateId, patch) => set(s => ({
     workflows: s.workflows.map(w => w.id !== wfId ? w : {
@@ -437,13 +445,19 @@ export const useWorkflowStore = create(persist((set, get) => ({
 
   // ── Import from M-Files Vault ──────────────────────────────
   // Takes workflow JSON from M-Files (via pull-from-vault.ps1) and creates a new tab.
-  seedImportedWorkflow: (mfData) => {
+  // sourceVaultGuid (optional): which vault this was actually pulled from --
+  // stored on the workflow so a later export knows where it belongs, instead
+  // of always using whatever vault happens to be selected in the panel at
+  // push time (real bug: an imported workflow always re-exported to whichever
+  // vault was current in the tree, not the one it actually came from).
+  seedImportedWorkflow: (mfData, sourceVaultGuid) => {
     const date = mfData.importedAt ? mfData.importedAt.split('T')[0] : new Date().toISOString().split('T')[0];
     const wf = {
       id:          makeId(),
       name:        `📥 ${mfData.name} (imported ${date})`,
       source:      mfData.source || 'mfiles',
       importedAt:  mfData.importedAt,
+      sourceVaultGuid: sourceVaultGuid || null,
       states:      (mfData.states || []).map(s => ({ id: makeId(), ...s })),
       transitions: (mfData.transitions || []).map(t => ({ id: makeId(), ...t })),
       groups:      [],

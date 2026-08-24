@@ -1,6 +1,6 @@
 import { Fragment, useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { Users, Cog, Palette, Plus, Play, TriangleAlert } from 'lucide-react';
+import { Users, Cog, Palette, Plus, Play, TriangleAlert, ChevronLeft, ChevronRight, Trash2, Undo2, Redo2, ArrowRightLeft } from 'lucide-react';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 import { useMermaid } from '../hooks/useMermaid';
 import { useExport } from '../hooks/useExport';
@@ -174,7 +174,7 @@ function addClicks(el, onNode, onNodeHover) {
 // buildLayoutModel's geometric resolution, not a raw mermaid-text lookup.
 // Ghost overlays are rebuilt from model.edges (already resolved: fromId,
 // toId, transId) instead of a second independent nearest-neighbor pass.
-function enableEdgeInteraction(el, model, onEdge, updateBend, onEdgeHover) {
+function enableEdgeInteraction(el, model, onEdge, updateBend, onEdgeHover, onEdgeContextMenu, onEdgeDoubleClick) {
   const svg = el?.querySelector('svg'); if (!svg || !model) return;
   const { nodes, edges, finalPos, bendPos } = model;
   const DRAG_THRESHOLD = 5;
@@ -194,6 +194,12 @@ function enableEdgeInteraction(el, model, onEdge, updateBend, onEdgeHover) {
     ghost.style.cssText = 'stroke-width:32px;stroke:transparent;fill:none;cursor:pointer;pointer-events:stroke';
     ghost.onmouseenter = () => onEdgeHover?.({ fromId, toId });
     ghost.onmouseleave = () => onEdgeHover?.(null);
+    // Right-click / double-click open the same palette-driven editing surfaces
+    // as a node's own (see enableNodeDrag below) — transId is already resolved
+    // here via buildLayoutModel's geometric matching, so no separate name-based
+    // lookup is needed at the call site.
+    ghost.oncontextmenu = e => { e.preventDefault(); e.stopPropagation(); onEdgeContextMenu?.({ fromId, toId, transId }, e.clientX, e.clientY); };
+    ghost.ondblclick = e => { e.stopPropagation(); onEdgeDoubleClick?.({ fromId, toId, transId }, e.clientX, e.clientY); };
     ghostLayer.appendChild(ghost);
 
     const toUserSpace = (clientX, clientY) => {
@@ -555,7 +561,7 @@ function applyManualLayout(el, wf) {
 // click still opens the state inspector, unaffected); dropping persists the
 // new position via updatePosition. Must run AFTER addClicks so it can wrap
 // the click handler addClicks already attached and suppress it post-drag.
-function enableNodeDrag(el, model, updatePosition) {
+function enableNodeDrag(el, model, updatePosition, onNodeContextMenu, onNodeDoubleClick) {
   const svg = el?.querySelector('svg'); if (!svg || !model) return;
   const { nodes, edges, idToStateId, finalPos, bendPos } = model;
   const DRAG_THRESHOLD = 5;
@@ -565,6 +571,11 @@ function enableNodeDrag(el, model, updatePosition) {
     const stateId = idToStateId[id];
     const origOnClick = n.el.onclick;
     n.el.style.cursor = 'grab';
+    // Right-click / double-click — the editing-palette's context menu and
+    // inline-rename entry points. Gateways are already excluded by the guard
+    // above (they're a rendering-only derived node, no store record to edit).
+    n.el.oncontextmenu = e => { e.preventDefault(); e.stopPropagation(); onNodeContextMenu?.(stateId, e.clientX, e.clientY); };
+    n.el.ondblclick = e => { e.stopPropagation(); onNodeDoubleClick?.(stateId, e.clientX, e.clientY); };
 
     n.el.onmousedown = (e) => {
       e.stopPropagation();
@@ -657,6 +668,7 @@ export default function CommandCenter() {
   const workflows=useWorkflowStore(s=>s.workflows), activeId=useWorkflowStore(s=>s.activeId);
   const getActive=useWorkflowStore(s=>s.getActive);
   const renameWorkflow=useWorkflowStore(s=>s.renameWorkflow), clearWorkflow=useWorkflowStore(s=>s.clearWorkflow);
+  const deleteWorkflow=useWorkflowStore(s=>s.deleteWorkflow);
   const importWorkflow=useWorkflowStore(s=>s.importWorkflow), resetAll=useWorkflowStore(s=>s.resetAll);
   const addState=useWorkflowStore(s=>s.addState), updateState=useWorkflowStore(s=>s.updateState);
   const updateStatePosition=useWorkflowStore(s=>s.updateStatePosition);
@@ -668,6 +680,12 @@ export default function CommandCenter() {
   const resetDiagramLayout=useWorkflowStore(s=>s.resetDiagramLayout);
   const deleteTransition=useWorkflowStore(s=>s.deleteTransition);
   const seedStressTest=useWorkflowStore(s=>s.seedStressTest);
+  const takeSnapshot=useWorkflowStore(s=>s.takeSnapshot);
+  const undo=useWorkflowStore(s=>s.undo), redo=useWorkflowStore(s=>s.redo);
+  // Subscribed directly (not via a canUndo()/canRedo() selector) so the
+  // palette's disabled state actually re-renders when history changes —
+  // same reasoning MFlowCanvas.jsx's own history subscription uses.
+  const history=useWorkflowStore(s=>s.history);
   const users=useWorkflowStore(s=>s.users), properties=useWorkflowStore(s=>s.properties), rules=useWorkflowStore(s=>s.rules);
   const addUser=useWorkflowStore(s=>s.addUser), updateUser=useWorkflowStore(s=>s.updateUser), deleteUser=useWorkflowStore(s=>s.deleteUser);
   const addProperty=useWorkflowStore(s=>s.addProperty), updateProperty=useWorkflowStore(s=>s.updateProperty), deleteProperty=useWorkflowStore(s=>s.deleteProperty);
@@ -706,7 +724,12 @@ export default function CommandCenter() {
   const [mfUser,setMfUser]=useState(''), [mfPass,setMfPass]=useState('');
   const [open,setOpen]=useState({states:true,trans:true,users:false,props:false,rules:false});
   const [stateFilter,setStateFilter]=useState(''), [transFilter,setTransFilter]=useState('');
-  const [leftOpen,setLeftOpen]=useState(true);
+  // Big left configuration panel (ingestion source, States/Transitions/Users/
+  // Properties/Rules tables) starts HIDDEN — the small canvas palette
+  // (paletteOpen, defaults true below) is the primary editing surface now;
+  // this panel is still reachable via its own toolbar toggle, just not
+  // shown by default on startup.
+  const [leftOpen,setLeftOpen]=useState(false);
   const [rightOpen,setRightOpen]=useState(false);
   const [zoom,setZoom]=useState(1);
   // Bumped by resetDiagramLayout so the diagram effect re-runs even though
@@ -714,12 +737,25 @@ export default function CommandCenter() {
   // not part of the states/transitions shape useMermaid derives its string from).
   const [layoutResetTick,setLayoutResetTick]=useState(0);
   const [mfPushQueue,setMfPushQueue]=useState([]);
-  const [mfPullQueue,setMfPullQueue]=useState([]);
-  const [mfVaultWorkflows,setMfVaultWorkflows]=useState([]);
+  // Vault-picker tree (Connection settings) — replaces manual GUID entry: Fetch
+  // lists real vaults, expanding one lists its workflow(s), picking a workflow
+  // pulls it directly via the existing, unmodified pull mechanism below.
+  const [mfVaultTree,setMfVaultTree]=useState([]); // [{name,guid}]
+  const [mfExpandedVault,setMfExpandedVault]=useState(null); // guid or null
+  const [mfVaultTreeWorkflows,setMfVaultTreeWorkflows]=useState({}); // {[guid]: 'loading' | {error} | [{id,name}]}
   const [syncMode,setSyncMode]=useState('export');
   const [canScrollUp,setCanScrollUp]=useState(false);
   const [canScrollDown,setCanScrollDown]=useState(false);
   const [showEdgeSearch,setShowEdgeSearch]=useState(false);
+  // Editing palette (left edge of the canvas) — collapsible, default expanded.
+  // Local-only, not persisted, same treatment as leftOpen/rightOpen/animateFlow.
+  const [paletteOpen,setPaletteOpen]=useState(true);
+  // Right-click menu — {kind:'node',stateId,x,y} | {kind:'edge',transId,fromId,toId,x,y}
+  const [ctxMenu,setCtxMenu]=useState(null);
+  // Inline-rename overlay (fixed-position input near the double-clicked/menu'd
+  // element, not a true SVG text swap — see the investigation report this was
+  // scoped from). {kind:'node',stateId,value,x,y} | {kind:'edge',transId,value,x,y}
+  const [renameBox,setRenameBox]=useState(null);
 
   const addPngCompareFiles=(fileList)=>{
     const files=Array.from(fileList||[]).filter(f=>f.type.startsWith('image/'));
@@ -741,6 +777,20 @@ export default function CommandCenter() {
   };
 
   const wf=getActive(), mermaidStr=useMermaid(wf);
+  // Moved up from just above the JSX return (still used there) so the
+  // keyboard-shortcut effect below — which needs them in its deps array —
+  // isn't reading them before they're declared in this component's render pass.
+  const selStateObj=sel?wf?.states.find(s=>s.name===sel):null;
+  // selTrans is {fromId,toId} (sanitized, underscored) — convert back to
+  // display names, then resolve the real store transition record so
+  // delete/edit-label/keyboard-shortcut code has an actual id to act on.
+  const selTransObj=selTrans!=null
+    ?{from:selTrans.fromId.replace(/_/g,' '),to:selTrans.toId.replace(/_/g,' ')}
+    :null;
+  const selTransRecord=selTransObj&&wf
+    ?wf.transitions.find(t=>t.from===selTransObj.from&&t.to===selTransObj.to)
+    :null;
+  const canUndo=history.past.length>0, canRedo=history.future.length>0;
   // applyGatewayDiamonds reads wf.groups directly (decision/automatic is a rendering-only
   // choice, never embedded in mermaidStr) — this key forces the diagram effect to redo the
   // diamond pass when a gateway's type toggles, even though the mermaid text itself didn't change.
@@ -758,6 +808,63 @@ export default function CommandCenter() {
   const filteredTrans=(wf?.transitions||[]).filter(t=>!transFilter||t.from.toLowerCase().includes(transFilter.toLowerCase())||t.to.toLowerCase().includes(transFilter.toLowerCase()));
   const {exportJSON}=useExport();
   const diagRef=useRef(null), rcRef=useRef(0), zoomRef=useRef(1), wrapRef=useRef(null);
+  // ── Palette-spawned state positioning ──────────────────────────────────
+  // A brand-new, not-yet-connected state has no transitions to anchor it, so
+  // Mermaid's own auto-layout can drop it anywhere on the canvas — confirmed
+  // live landing at the opposite (bottom-right) corner from the palette
+  // itself, which read as "where did it go" even though it really was added.
+  //
+  // Two axes, two different fixes, because they have genuinely different
+  // stability properties:
+  //  - Y (vertical): .diagram-wrap uses align-items:flex-start, so the SVG
+  //    is always TOP-aligned in its wrapper regardless of its own height —
+  //    growing the viewBox upward (via growViewBoxToFit, which runs whenever
+  //    a node's y goes above the current minimum) never shifts where the
+  //    diagram's own top edge renders on screen. A fixed SVG-unit offset
+  //    above the diagram's current topmost content is therefore reliably
+  //    "near the top of the canvas" for ANY workflow shape — confirmed live
+  //    against both the narrow 6-state seed and an unrelated wide 12-state
+  //    fan-out workflow (injected via localStorage for exactly this check).
+  //  - X (horizontal): .diagram-wrap uses justify-content:center instead, so
+  //    the SVG's on-screen horizontal position shifts with its own rendered
+  //    width — which changes every time content is added. A fixed SVG-unit
+  //    offset computed relative to existing content (e.g. "200 units left of
+  //    the leftmost node") does NOT reliably land clear of the palette:
+  //    confirmed live, a value tuned to clear the palette on the narrow seed
+  //    workflow still clipped it on the wide fan-out workflow, because the
+  //    same offset lands at a different SCREEN position depending on how
+  //    wide the whole diagram already is. Computing X via
+  //    getScreenCTM().inverse() right after each add's own re-render (when
+  //    the CTM is current, not stale) fixed a SINGLE add — but a SECOND
+  //    successive add's own growViewBoxToFit call widens the SVG further,
+  //    and since it's centered, a wider SVG shifts its own on-screen origin,
+  //    dragging the FIRST (already-correct) add back toward the palette
+  //    again — confirmed live: one add alone always landed clear, but a 2nd
+  //    or 3rd in the same session could pull an earlier one back into
+  //    overlap even though its own stored SVG-coordinate never changed.
+  //    Fixed by not treating this as a one-time placement at all: every
+  //    still-unconnected spawn-row member gets RECOMPUTED together, using
+  //    whatever the CURRENT (accurate, that render's own) CTM/palette rect
+  //    are, on every render that could have shifted anything — see
+  //    spawnedRowIdsRef below. A member "graduates" out (stops being
+  //    auto-repositioned) the moment it's manually dragged or gets a real
+  //    transition connected to it — at that point it's genuinely part of
+  //    the workflow, not a staging placeholder, and should behave like any
+  //    other state.
+  const lastLayoutModelRef=useRef(null);
+  // Cached top-of-diagram Y anchor (SVG-unit space, robust per above) —
+  // computed ONCE per workflow from whatever real content already exists,
+  // not recomputed from the live node set on every render: a spawned state
+  // would otherwise become part of "all current nodes" for the NEXT
+  // computation, compounding the anchor further off-target with every add
+  // (confirmed live on an earlier version of this). Reset on workflow
+  // switch — see the activeId effect below.
+  const spawnAnchorRef=useRef(null);
+  // Every still-unconnected state added via the canvas palette (not the
+  // States table's own separate "+ Add") — kept pinned in the staging row
+  // above the diagram, recomputed on every render, until it graduates out
+  // (dragged, or connected to a real transition).
+  const spawnedRowIdsRef=useRef(new Set());
   const leftBodyRef=useRef(null);
   const logRef=useRef(null), mfLogRef=useRef(null);
   const logTailRef=useRef(null), mfLogTailRef=useRef(null);
@@ -787,8 +894,10 @@ export default function CommandCenter() {
 
   useEffect(()=>{updateLeftScrollState();},[open.states,open.trans,open.users,open.props,open.rules,workflows.length,activeId,mode]);
   // Active workflow changed (tab click, add, delete, import) — clear any
-  // selection/highlight left over from the previous workflow's diagram.
-  useEffect(()=>{setSel('');setSelTrans(null);},[activeId]);
+  // selection/highlight left over from the previous workflow's diagram, and
+  // the cached palette spawn-anchor (see spawnAnchorRef) so a different
+  // workflow's own content gets its own fresh top-left anchor.
+  useEffect(()=>{setSel('');setSelTrans(null);spawnAnchorRef.current=null;spawnedRowIdsRef.current.clear();},[activeId]);
   useLayoutEffect(()=>{
     if(logFollowRef.current) logTailRef.current?.scrollIntoView({block:'end'});
   },[log.length,busy]);
@@ -840,6 +949,56 @@ export default function CommandCenter() {
           // Re-apply any previously-dragged node positions / bent edges before
           // building click hitboxes, so hitbox geometry matches what's on screen.
           const layoutModel=applyManualLayout(diagRef.current,wf);
+          lastLayoutModelRef.current=layoutModel;
+          // Keep every still-unconnected spawn-row state pinned clear of the
+          // palette — recomputed TOGETHER, fresh, on every render, not just
+          // once when each was added. See spawnedRowIdsRef's declaration
+          // comment for why: each SUBSEQUENT add's own growViewBoxToFit call
+          // widens the SVG, and since .diagram-wrap centers it, a wider SVG
+          // shifts where EARLIER content renders — a one-time placement
+          // measurably drifted back toward the palette as more got added
+          // later, confirmed live. Graduate anything now connected by a
+          // real transition out of the row first — from here on it behaves
+          // like any other state, not a staging placeholder.
+          if(spawnedRowIdsRef.current.size){
+            wf.transitions.forEach(t=>{
+              const fromSt=wf.states.find(s=>s.name===t.from);
+              const toSt=wf.states.find(s=>s.name===t.to);
+              if(fromSt) spawnedRowIdsRef.current.delete(fromSt.id);
+              if(toSt) spawnedRowIdsRef.current.delete(toSt.id);
+            });
+          }
+          if(spawnedRowIdsRef.current.size&&svgEl){
+            if(!spawnAnchorRef.current){
+              const positions=Object.values(layoutModel.finalPos);
+              if(positions.length){
+                const minY=Math.min(...positions.map(p=>p.y));
+                spawnAnchorRef.current={y:minY-140};
+              }
+            }
+            const ctm=svgEl.getScreenCTM();
+            const paletteEl=document.querySelector('.studio-pal-panel');
+            if(ctm&&paletteEl&&spawnAnchorRef.current){
+              const paletteRect=paletteEl.getBoundingClientRect();
+              let col=0;
+              spawnedRowIdsRef.current.forEach(stateId=>{
+                const st=wf.states.find(s=>s.id===stateId);
+                if(!st){ spawnedRowIdsRef.current.delete(stateId); return; } // deleted — nothing to reposition
+                const node=layoutModel.nodes[sanitizeStateId(st.name)];
+                if(!node) return; // not in this render for some reason — don't crash on it
+                const pt=svgEl.createSVGPoint();
+                // A real (non-zero) y keeps this correct even if the CTM ever
+                // carries a skew/rotation component, not just translate+scale.
+                pt.x=paletteRect.right+70+col*110; pt.y=paletteRect.top;
+                const userPt=pt.matrixTransform(ctm.inverse());
+                const x=userPt.x, y=spawnAnchorRef.current.y;
+                node.el.setAttribute('transform',`translate(${x}, ${y})`);
+                growViewBoxToFit(svgEl,x,y);
+                updateStatePosition(wf.id,stateId,x,y);
+                col++;
+              });
+            }
+          }
           addClicks(diagRef.current, name=>{setSel(name);setSelTrans(null);}, name=>setHoveredState(name));
           enableEdgeInteraction(
             diagRef.current,
@@ -864,10 +1023,21 @@ export default function CommandCenter() {
             entry=>{
               if(!entry){setHoveredTransition(null);return;}
               setHoveredTransition(entry.fromId.replace(/_/g,' '),entry.toId.replace(/_/g,' '));
-            }
+            },
+            openEdgeContextMenu,
+            openEdgeRename
           );
           enableNodeDrag(diagRef.current,layoutModel,
-            (stateId,x,y)=>updateStatePosition(wf.id,stateId,x,y));
+            (stateId,x,y)=>{
+              // A manual drag graduates a spawn-row state out of auto-
+              // repositioning — without this, the very next render (e.g.
+              // adding another state) would snap it right back to the
+              // staging row, silently undoing the user's own drag.
+              spawnedRowIdsRef.current.delete(stateId);
+              updateStatePosition(wf.id,stateId,x,y);
+            },
+            openNodeContextMenu,
+            openNodeRename);
           // Runs last, purely additive — never affects hit-testing/geometry the
           // steps above already finished building.
           if(animateFlow) applyEdgeFlowAnimation(diagRef.current,wf,layoutModel);
@@ -973,6 +1143,66 @@ export default function CommandCenter() {
   // Reset zoom to 100% when switching workflows
   useEffect(()=>{ setZoom(1); zoomRef.current=1; },[activeId]);
 
+  // Close the right-click context menu on any click elsewhere. Capture
+  // phase, not bubble — most of this canvas's own click handlers
+  // (diagram-wrap, the diagram container, the palette, individual nodes)
+  // call e.stopPropagation() so their own logic doesn't trigger diagram-
+  // wrap's click-to-deselect, which also means a plain bubble-phase
+  // document listener never sees clicks landing on the canvas at all:
+  // confirmed live, clicking away from an open menu anywhere ON the canvas
+  // silently did nothing. A capture-phase listener runs before any of those
+  // descendant stopPropagation() calls happen, so it always sees the click.
+  // Explicitly skips clicks inside the menu itself so its own buttons still work.
+  useEffect(()=>{
+    if(!ctxMenu) return;
+    const close=e=>{
+      if(e.target.closest('.bpmn-context-menu')) return;
+      setCtxMenu(null);
+    };
+    document.addEventListener('click',close,true);
+    return()=>document.removeEventListener('click',close,true);
+  },[ctxMenu]);
+
+  // Editing-palette keyboard shortcuts — Delete/Backspace (selected state or
+  // transition, cascade-deletes like the palette/context-menu buttons do),
+  // Ctrl+Z/Ctrl+Y (undo/redo), Escape (clear selection + close any open menu/
+  // rename box). inField guards on Delete/Ctrl+Z/Ctrl+Y so typing in any of
+  // Studio's many text inputs (state/transition fields, filters, the rename
+  // box itself) is never hijacked — same convention MFlowCanvas.jsx's own
+  // keydown handler uses. Escape is deliberately NOT inField-gated, matching
+  // that same precedent (harmless either way, and should close the rename box).
+  useEffect(()=>{
+    const onKeyDown=e=>{
+      const tag=document.activeElement?.tagName;
+      const inField=tag==='INPUT'||tag==='TEXTAREA';
+      if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&e.key.toLowerCase()==='z'){
+        if(inField) return;
+        e.preventDefault(); if(canUndo) undo();
+        return;
+      }
+      if((e.ctrlKey||e.metaKey)&&(e.key.toLowerCase()==='y'||(e.shiftKey&&e.key.toLowerCase()==='z'))){
+        if(inField) return;
+        e.preventDefault(); if(canRedo) redo();
+        return;
+      }
+      if(e.key==='Escape'){ setSel(''); setSelTrans(null); setCtxMenu(null); setRenameBox(null); return; }
+      if((e.key==='Delete'||e.key==='Backspace')&&!inField){
+        if(sel&&selStateObj){
+          takeSnapshot();
+          const r=deleteState(activeId,selStateObj.id,{cascade:true});
+          if(!r?.ok) alert(r?.error);
+          setSel('');
+        } else if(selTrans&&selTransRecord){
+          takeSnapshot();
+          deleteTransition(activeId,selTransRecord.id);
+          setSelTrans(null);
+        }
+      }
+    };
+    document.addEventListener('keydown',onKeyDown);
+    return()=>document.removeEventListener('keydown',onKeyDown);
+  },[sel,selStateObj,selTrans,selTransRecord,activeId,canUndo,canRedo,undo,redo,deleteState,deleteTransition,takeSnapshot]);
+
   useEffect(()=>{if(diagRef.current)highlightNode(diagRef.current,sel);},[sel]);
   useEffect(()=>{
     if(!diagRef.current) return;
@@ -1049,42 +1279,75 @@ export default function CommandCenter() {
   const handleSave=()=>{exportJSON();setSaved(true);setSaveFlash(true);setTimeout(()=>setSaveFlash(false),2000);};
   const handleSOW=()=>{if(wf?.states.length)dl(buildSOW(wf,users,properties,rules),`${(wf.name||'sow').replace(/\s+/g,'_')}.md`);};
   const handlePRD=()=>{if(wf?.states.length)dl(buildPRD(wf,users,properties,rules),`${(wf.name||'prd').replace(/\s+/g,'_')}_PRD.md`);};
-  const handleMfFetch=async()=>{
-    if(!mfVault.trim()){addMfLog('Vault GUID is required','error');return;}
-    setMfBusy(true);setMfLog([]);setMfPullQueue([]);addMfLog('Fetching available workflows...');
+  // Resets the M-Files Sync panel's transient state back to "nothing fetched
+  // yet" — fetched vault/workflow tree, selection, log, and the export stage
+  // queue. Does not touch local workflow tabs/canvas data, only sync state.
+  const handleClearMfSync=()=>{
+    setMfVaultTree([]);setMfExpandedVault(null);setMfVaultTreeWorkflows({});
+    setMfVault('');setMfLog([]);setMfOk(null);setMfPushQueue([]);
+  };
+
+  // Enumerates real vaults on the server — replaces manual GUID entry.
+  const handleFetchVaultTree=async()=>{
+    setMfBusy(true);addMfLog('Fetching available vaults...');
     try{
-      const res=await window.mfiles.listWorkflows({
-        vaultGuid:mfVault,server:mfServer,authType:mfAuth,username:mfUser,password:mfPass
-      });
-      if(!res.ok) throw new Error(res.error||'Fetch failed');
-      const fetched=(res.workflows||[])
-        .map(w=>({id:Number(w?.id),name:String(w?.name||'').trim()}))
-        .filter(w=>Number.isFinite(w.id)&&w.name);
-      const seen=new Set();
-      const unique=fetched.filter(w=>{
-        if(seen.has(w.id)) return false;
-        seen.add(w.id);
-        return true;
-      });
-      setMfVaultWorkflows(unique);
-      addMfLog(`Found ${unique.length} workflows`,'ok');
+      const res=await window.mfiles.listVaults({server:mfServer});
+      if(!res.ok) throw new Error(res.error||'Failed to fetch vaults');
+      const vaults=(res.vaults||[]).filter(v=>v?.guid);
+      setMfVaultTree(vaults);
+      setMfExpandedVault(null);
+      setMfVaultTreeWorkflows({});
+      addMfLog(`Found ${vaults.length} vault(s)`,'ok');
     }catch(e){addMfLog(e.message,'error');}
     finally{setMfBusy(false);}
   };
+  // Clicking a vault row does two things: selects it (sets mfVault, the shared
+  // target both Export and Import read) and toggles its expanded workflow list.
+  // Selection is a separate concern from expand/collapse -- picking a vault for
+  // Export doesn't require ever looking at its workflows, so mfVault is set
+  // unconditionally here, not just as a side effect of importing one (that gap
+  // meant Export had no way to choose a vault at all once manual GUID entry was
+  // replaced by this tree -- confirmed against the original CommandCenter.jsx
+  // this project started from, where a manual "Vault GUID" input was the only
+  // selection mechanism for both Export and Import alike).
+  const handleToggleVaultExpand=async(guid)=>{
+    setMfVault(guid);
+    if(mfExpandedVault===guid){setMfExpandedVault(null);return;}
+    setMfExpandedVault(guid);
+    if(mfVaultTreeWorkflows[guid])return;
+    setMfVaultTreeWorkflows(prev=>({...prev,[guid]:'loading'}));
+    try{
+      const res=await window.mfiles.listWorkflows({vaultGuid:guid,server:mfServer,authType:mfAuth,username:mfUser,password:mfPass});
+      if(!res.ok) throw new Error(res.error||'Failed to fetch workflows');
+      const fetched=(res.workflows||[])
+        .map(w=>({id:Number(w?.id),name:String(w?.name||'').trim()}))
+        .filter(w=>Number.isFinite(w.id)&&w.name);
+      setMfVaultTreeWorkflows(prev=>({...prev,[guid]:fetched}));
+    }catch(e){
+      setMfVaultTreeWorkflows(prev=>({...prev,[guid]:{error:e.message}}));
+    }
+  };
+  // Picking a workflow in the tree pulls it directly — this is now the only
+  // import path, so handleMfPull always receives an explicit guid+id, no
+  // staged-queue fallback needed. mfVault is already set by this point --
+  // a workflow can't be clicked before its vault was expanded via
+  // handleToggleVaultExpand, which sets it unconditionally.
+  const handleSelectTreeWorkflow=(guid,workflowId)=>{
+    handleMfPull(guid,[workflowId]);
+  };
 
-  const handleMfPull=async()=>{
-    if(!mfVault.trim()){addMfLog('Vault GUID is required','error');return;}
-    if(!mfPullQueue.length)return;
-    setMfBusy(true);setMfLog([]);addMfLog(`Pulling ${mfPullQueue.length} workflows...`);
+  const handleMfPull=async(guid,ids)=>{
+    if(!guid.trim()){addMfLog('Select a vault first','error');return;}
+    if(!ids.length)return;
+    setMfBusy(true);setMfLog([]);addMfLog(`Pulling ${ids.length} workflow(s)...`);
     window.mfiles.onProgress(m=>addMfLog(m));
     try{
       const res=await window.mfiles.pullWorkflows({
-        workflowIds:mfPullQueue,vaultGuid:mfVault,server:mfServer,authType:mfAuth,username:mfUser,password:mfPass
+        workflowIds:ids,vaultGuid:guid,server:mfServer,authType:mfAuth,username:mfUser,password:mfPass
       });
       if(!res.ok) throw new Error(res.error||'Pull failed');
-      (res.workflows||[]).forEach(w=>useWorkflowStore.getState().seedImportedWorkflow(w));
-      addMfLog(`Successfully pulled ${(res.workflows||[]).length} workflows into tabs`,'ok');
-      setMfPullQueue([]);
+      (res.workflows||[]).forEach(w=>useWorkflowStore.getState().seedImportedWorkflow(w,guid));
+      addMfLog(`Successfully pulled ${(res.workflows||[]).length} workflow(s) into tabs`,'ok');
     }catch(e){addMfLog(e.message,'error');}
     finally{
       setMfBusy(false);
@@ -1092,28 +1355,50 @@ export default function CommandCenter() {
     }
   };
 
+  const buildWorkflowExportJson=(targetWf)=>({
+    name: targetWf.name||'Unnamed Workflow',
+    states: targetWf.states.map(s=>({name:s.name, initial:!!s.initial})),
+    transitions: targetWf.transitions.map(t=>({from:t.from, to:t.to, ...(t.conditions?{conditions:t.conditions}:{}), ...(t.permissions?{allowedUsers:t.permissions}:{})})),
+  });
+
+  // Create-new-or-skip only -- update-in-place was tried and dropped (added
+  // complexity nothing used; simple create-or-skip is the accepted behavior).
+  // Reports each workflow's REAL per-item outcome (created/skipped/error) --
+  // window.mfiles.pushWorkflow's status field, not just ok/exit-code, since a
+  // duplicate-name skip used to read as a false "success" in the log.
   const handleMfPush=async()=>{
-    if(!mfVault.trim()){addMfLog('Vault GUID is required','error');return;}
+    if(!mfVault.trim()){addMfLog('Select a vault first','error');return;}
     if(!mfPushQueue.length)return;
     if(!window.mfiles){addMfLog('window.mfiles not found — run in Electron','error');return;}
     setMfBusy(true);setMfLog([]);setMfOk(null);
-    addMfLog(`Staging ${mfPushQueue.length} workflows for push...`);
+    addMfLog(`Staging ${mfPushQueue.length} workflow(s) for push...`);
     window.mfiles.onProgress(msg=>addMfLog(msg));
+    let created=0, skipped=0, failed=0;
     try{
       for(const id of mfPushQueue){
         const targetWf=workflows.find(w=>w.id===id);
         if(!targetWf)continue;
+        // An imported workflow goes back to the vault it actually came from,
+        // not whatever vault happens to be selected in the panel right now --
+        // only a genuinely new (never-imported) workflow uses the panel's
+        // manually-selected mfVault as its target.
+        const targetVaultGuid=targetWf.sourceVaultGuid||mfVault;
         addMfLog(`Pushing "${targetWf.name}"...`);
-        const json={
-          name: targetWf.name||'Unnamed Workflow',
-          states: targetWf.states.map(s=>({name:s.name, initial:!!s.initial})),
-          transitions: targetWf.transitions.map(t=>({from:t.from, to:t.to, ...(t.conditions?{conditions:t.conditions}:{}), ...(t.permissions?{allowedUsers:t.permissions}:{})})),
-        };
-        const res=await window.mfiles.pushWorkflow({json,vaultGuid:mfVault,server:mfServer,authType:mfAuth,username:mfUser,password:mfPass});
-        if(!res.ok) throw new Error(`${targetWf.name}: ${res.error||'Unknown push error'}`);
+        const json=buildWorkflowExportJson(targetWf);
+        const res=await window.mfiles.pushWorkflow({json,vaultGuid:targetVaultGuid,server:mfServer,authType:mfAuth,username:mfUser,password:mfPass});
+        if(res.status==='created'){
+          created++;
+          addMfLog(`"${targetWf.name}" created (ID=${res.workflowId}) — ${res.statesAdded} states, ${res.transitionsAdded} transitions`,'ok');
+        }else if(res.status==='skipped'){
+          skipped++;
+          addMfLog(res.error||`"${targetWf.name}" skipped — already exists`,'warn');
+        }else{
+          failed++;
+          addMfLog(`"${targetWf.name}": ${res.error||'Unknown push error'}`,'error');
+        }
       }
-      setMfOk(true);
-      addMfLog('All staged workflows pushed successfully','ok');
+      setMfOk(failed===0);
+      addMfLog(`Done: ${created} created, ${skipped} skipped, ${failed} failed`, failed>0?'error':(skipped>0?'warn':'ok'));
       setMfPushQueue([]);
     }catch(e){
       setMfOk(false);
@@ -1125,14 +1410,70 @@ export default function CommandCenter() {
   };
 
   const hasStates=!!wf?.states.length;
-  // selTrans is now {fromId,toId} — convert underscored IDs back to display names for the header
-  const selTransObj=selTrans!=null
-    ?{from:selTrans.fromId.replace(/_/g,' '),to:selTrans.toId.replace(/_/g,' ')}
-    :null;
-  // Toolbar Palette (beside the theme selector) mirrors the per-row "Cosmetic
-  // style…" popover's fields exactly — same state.color/badge/badgeColor data,
-  // just reachable without opening a table row first.
-  const selStateObj=sel?wf?.states.find(s=>s.name===sel):null;
+  // selStateObj/selTransObj/selTransRecord/canUndo/canRedo moved up next to
+  // `wf` — see the comment there. Still used below exactly as before
+  // (selStateObj by the toolbar palette's cosmetic-style fields, mirroring
+  // the per-row "Cosmetic style…" popover).
+
+  // New states added from the CANVAS palette need a real default name, not
+  // blank — useMermaid.js skips any state with an empty name entirely
+  // (`if (!name) return`), so a blank-named state is invisible on the
+  // diagram until someone types a name into the table. That's fine for the
+  // States table's own pre-existing "+ Add" (the new blank row is right
+  // there, immediately visible, easy to name) but reads as "the button did
+  // nothing" when the add happens from the canvas itself, where the only
+  // feedback a user would look for is a new node appearing. Same root cause,
+  // same fix MFlowCanvas.jsx already uses for its own canvas palette
+  // (uniqueStateName) — applied here for the identical reason, table's own
+  // "+ Add" behavior deliberately left untouched.
+  const uniqueStateName=base=>{
+    const existing=new Set((wf?.states||[]).map(s=>s.name));
+    if(!existing.has(base)) return base;
+    let n=2;
+    while(existing.has(`${base} ${n}`)) n++;
+    return `${base} ${n}`;
+  };
+
+  // ── Editing palette / canvas context-menu / inline-rename handlers ──
+  // Right-click a node -> open the menu, also selecting it (so the palette's
+  // Delete Selected State / Labels field agree with whatever the menu is
+  // about to act on).
+  const openNodeContextMenu=(stateId,x,y)=>{
+    const st=wf?.states.find(s=>s.id===stateId);
+    if(!st) return;
+    setSel(st.name); setSelTrans(null);
+    setCtxMenu({kind:'node',stateId,x,y});
+  };
+  const openEdgeContextMenu=({fromId,toId,transId},x,y)=>{
+    setSelTrans({fromId,toId}); setSel('');
+    setCtxMenu({kind:'edge',transId,fromId,toId,x,y});
+  };
+  const openNodeRename=(stateId,x,y)=>{
+    const st=wf?.states.find(s=>s.id===stateId);
+    if(!st) return;
+    setSel(st.name); setSelTrans(null);
+    setRenameBox({kind:'node',stateId,value:st.name,x,y});
+  };
+  const openEdgeRename=({transId},x,y)=>{
+    // Gateway-routed edges (source->hub, hub->target) have no single transId
+    // to edit — same guard updateTransitionBend's own caller already relies
+    // on transId being non-null for. Silently no-ops, matching that precedent.
+    if(!transId||!wf) return;
+    const t=wf.transitions.find(t=>t.id===transId);
+    if(!t) return;
+    setSelTrans({fromId:sanitizeStateId(t.from),toId:sanitizeStateId(t.to)}); setSel('');
+    setRenameBox({kind:'edge',transId,value:t.label||'',x,y});
+  };
+  const commitRenameBox=()=>{
+    if(!renameBox){ return; }
+    const value=renameBox.value.trim();
+    if(renameBox.kind==='node'){
+      if(value) { takeSnapshot(); renameState(activeId,renameBox.stateId,value); }
+    } else {
+      takeSnapshot(); updateTransition(activeId,renameBox.transId,{label:value||null});
+    }
+    setRenameBox(null);
+  };
 
   return (
       <div className="cc-body" style={{gridTemplateColumns:`${leftOpen?'35%':'0px'} 1fr ${rightOpen?'20%':'0px'}`}}>
@@ -1356,6 +1697,22 @@ export default function CommandCenter() {
               title={leftOpen?'Hide panel (more diagram space)':'Show panel'}>
               {leftOpen?'‹':'›'}
             </button>
+            {/* Editing-palette toggle — lives in the toolbar next to its sibling
+                panel-toggle buttons (not floating over the canvas, where it
+                used to sit and overlap diagram content) per the operator's
+                explicit placement request. Same button, same setPaletteOpen
+                state — only its location moved. */}
+            {wf&&(
+              // Blue-tinted, not plain gray like its left/right panel-toggle
+              // siblings — same accent language the palette's own tiles use on
+              // hover (var(--a2)/var(--a3)), so this one visibly "belongs to"
+              // the editing palette instead of reading as an identical third
+              // chevron with no way to tell them apart at a glance.
+              <button className="panel-toggle palette-toggle" onClick={()=>setPaletteOpen(o=>!o)}
+                title={paletteOpen?'Hide editing palette':'Show editing palette'}>
+                {paletteOpen?<ChevronLeft size={13}/>:<ChevronRight size={13}/>}
+              </button>
+            )}
             <span className="cc-col-lbl">
               {centerView==='compare' ? 'Conformity PNG Compare'
                 : sel ? `State — ${sel}` : selTransObj ? `→ ${selTransObj.from} → ${selTransObj.to}` : 'Live Diagram'}
@@ -1426,24 +1783,152 @@ export default function CommandCenter() {
           {centerView==='diagram'&&(
             <div className="diagram-wrap" ref={wrapRef} onClick={()=>{setSel('');setSelTrans(null);}}>
               {wf&&(
-                /* Object palette — the Mermaid-side equivalent of BPMN's element
-                   rail, deliberately limited to what a Mermaid stateDiagram
-                   actually has: states (plain or initial). No Gateway/Pool/
+                /* Collapsible editing palette — grew out of the old always-open
+                   2-tile "object palette" rail (States: State / Initial State),
+                   now also covering Delete/Add Transition/Label edit/Undo/Redo.
+                   Still deliberately limited to what a Mermaid stateDiagram
+                   actually has: states + transitions. No Gateway/Pool/
                    Sub-Process tiles — those are either auto-derived from
                    transition fan-out (gateways) or don't exist in this model at
-                   all; a Studio "Task" tile would just be a State by another
-                   name, so it isn't duplicated as a second tile. Transitions
-                   aren't click-to-place either, same reasoning BPMN's own
-                   Connectors category uses — a transition needs two real
-                   state endpoints, so it's added from the Transitions table. */
-                <div className="studio-pal-rail" onClick={e=>e.stopPropagation()}>
-                  <span className="studio-pal-rail-lbl">States</span>
-                  <button type="button" className="studio-pal-tile" onClick={()=>addState(activeId)}>
-                    <Plus size={13} strokeWidth={2}/><span>State</span>
-                  </button>
-                  <button type="button" className="studio-pal-tile" onClick={()=>addState(activeId,{initial:true})}>
-                    <Play size={12} strokeWidth={2}/><span>Initial State</span>
-                  </button>
+                   all. "Add Transition" still doesn't place a transition
+                   directly on the canvas (no drag-to-connect here) — it creates
+                   a blank/from-prefilled row in the Transitions table below,
+                   same as the table's own pre-existing "+ Add" always has. */
+                <div className={`studio-pal-shell ${paletteOpen?'open':'closed'}`} onClick={e=>e.stopPropagation()}>
+                  {/* Toggle button itself now lives in the toolbar (cc-col-head,
+                      next to the left/right panel-toggle buttons) — this shell
+                      only renders the sliding panel content now. */}
+                  <div className="studio-pal-panel-clip">
+                    <div className="studio-pal-panel">
+                      <div className="studio-pal-group">
+                        <span className="studio-pal-rail-lbl">States</span>
+                        <button type="button" className="studio-pal-tile" onClick={()=>{
+                          takeSnapshot();
+                          // No x/y here — the render effect positions it (and
+                          // keeps repositioning it on every later render too,
+                          // until it graduates out) once this add's own
+                          // re-render actually completes. See
+                          // spawnedRowIdsRef's declaration comment for why
+                          // that's the correct moment, not now.
+                          const newId=addState(activeId,{name:uniqueStateName('New State')});
+                          spawnedRowIdsRef.current.add(newId);
+                        }}>
+                          <Plus size={12} strokeWidth={2}/><span>Add State</span>
+                        </button>
+                        <button type="button" className="studio-pal-tile" onClick={()=>{
+                          takeSnapshot();
+                          const newId=addState(activeId,{name:uniqueStateName('New Initial State'),initial:true});
+                          spawnedRowIdsRef.current.add(newId);
+                        }}>
+                          <Play size={11} strokeWidth={2}/><span>Initial State</span>
+                        </button>
+                        <button type="button" className="studio-pal-tile danger" disabled={!selStateObj}
+                          title={selStateObj?`Delete "${selStateObj.name}"`:'Select a state on the canvas or in the table first'}
+                          onClick={()=>{
+                            if(!selStateObj) return;
+                            takeSnapshot();
+                            const r=deleteState(activeId,selStateObj.id,{cascade:true});
+                            if(!r?.ok) alert(r?.error);
+                            setSel('');
+                          }}>
+                          <Trash2 size={11} strokeWidth={2}/><span>Delete State</span>
+                        </button>
+                      </div>
+                      <div className="studio-pal-group">
+                        <span className="studio-pal-rail-lbl">Transitions</span>
+                        <button type="button" className="studio-pal-tile"
+                          title={selStateObj?`Add a transition starting from "${selStateObj.name}"`:'Add a blank transition'}
+                          onClick={()=>{
+                            takeSnapshot();
+                            addTransition(activeId,selStateObj?{from:selStateObj.name}:{});
+                            setOpen(o=>({...o,trans:true}));
+                          }}>
+                          <ArrowRightLeft size={11} strokeWidth={2}/><span>Add Transition</span>
+                        </button>
+                        <button type="button" className="studio-pal-tile danger" disabled={!selTransRecord}
+                          title={selTransRecord?`Delete "${selTransRecord.from} → ${selTransRecord.to}"`:'Select a transition on the canvas or in the table first'}
+                          onClick={()=>{
+                            if(!selTransRecord) return;
+                            takeSnapshot();
+                            deleteTransition(activeId,selTransRecord.id);
+                            setSelTrans(null);
+                          }}>
+                          <Trash2 size={11} strokeWidth={2}/><span>Delete Trans.</span>
+                        </button>
+                      </div>
+                      <div className="studio-pal-group">
+                        <span className="studio-pal-rail-lbl">Labels</span>
+                        {selStateObj
+                          ?<input className="studio-pal-label-input" value={selStateObj.name} placeholder="State name…"
+                              onChange={e=>renameState(activeId,selStateObj.id,e.target.value)}/>
+                          :selTransRecord
+                          ?<input className="studio-pal-label-input" value={selTransRecord.label||''} placeholder="Transition label…"
+                              onChange={e=>updateTransition(activeId,selTransRecord.id,{label:e.target.value||null})}/>
+                          :<div className="studio-pal-empty-hint">Select a state or transition to edit its label</div>}
+                      </div>
+                      <div className="studio-pal-group">
+                        <span className="studio-pal-rail-lbl">Workflow Actions</span>
+                        {/* Only pairing that shares a row — Undo/Redo are the
+                            one control here with a real, familiar icon-only
+                            convention (matching the table toolbar's own ↺/⟲
+                            elsewhere), unlike Add/Delete which need their full
+                            label to stay unambiguous at this width. */}
+                        <div className="studio-pal-row2">
+                          <button type="button" className="studio-pal-tile" disabled={!canUndo} onClick={()=>undo()} title="Undo (Ctrl+Z)">
+                            <Undo2 size={11} strokeWidth={2}/><span>Undo</span>
+                          </button>
+                          <button type="button" className="studio-pal-tile" disabled={!canRedo} onClick={()=>redo()} title="Redo (Ctrl+Y)">
+                            <Redo2 size={11} strokeWidth={2}/><span>Redo</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {ctxMenu&&(()=>{
+                const menuWidth=190;
+                const left=Math.max(10,Math.min(ctxMenu.x,window.innerWidth-menuWidth-20));
+                const top=Math.max(10,Math.min(ctxMenu.y,window.innerHeight-160));
+                const st=ctxMenu.kind==='node'?wf?.states.find(s=>s.id===ctxMenu.stateId):null;
+                const t=ctxMenu.kind==='edge'?wf?.transitions.find(t=>t.id===ctxMenu.transId):null;
+                return (
+                  /* Reuses BPMN's/M-Files Flow's own .bpmn-context-menu chrome
+                     directly — same "don't reinvent the wheel" precedent
+                     MFlowCanvas.jsx already established for this exact class. */
+                  <div className="bpmn-context-menu" style={{position:'fixed',left,top}} onClick={e=>e.stopPropagation()}>
+                    {ctxMenu.kind==='node'?(<>
+                      <div className="bpmn-context-menu-label">{st?`State: "${st.name}"`:'State'}</div>
+                      <button type="button" disabled={!st} onClick={()=>{if(!st)return;setRenameBox({kind:'node',stateId:st.id,value:st.name,x:ctxMenu.x,y:ctxMenu.y});setCtxMenu(null);}}>✏️ Edit Label</button>
+                      <button type="button" disabled={!st} onClick={()=>{if(!st)return;takeSnapshot();addTransition(activeId,{from:st.name});setOpen(o=>({...o,trans:true}));setCtxMenu(null);}}>+ Add Transition</button>
+                      <div className="bpmn-context-menu-divider"/>
+                      <button type="button" disabled={!st} onClick={()=>{if(!st)return;takeSnapshot();const r=deleteState(activeId,st.id,{cascade:true});if(!r?.ok)alert(r?.error);setSel('');setCtxMenu(null);}}>✕ Delete</button>
+                    </>):(<>
+                      <div className="bpmn-context-menu-label">{t?`Transition: ${t.from} → ${t.to}`:'Transition'}</div>
+                      <button type="button" disabled={!t} onClick={()=>{if(!t)return;setRenameBox({kind:'edge',transId:t.id,value:t.label||'',x:ctxMenu.x,y:ctxMenu.y});setCtxMenu(null);}}>✏️ Edit Label</button>
+                      <div className="bpmn-context-menu-divider"/>
+                      <button type="button" disabled={!t} onClick={()=>{if(!t)return;takeSnapshot();deleteTransition(activeId,t.id);setSelTrans(null);setCtxMenu(null);}}>✕ Delete</button>
+                    </>)}
+                  </div>
+                );
+              })()}
+              {renameBox&&(
+                <div className="studio-rename-box" style={{position:'fixed',left:Math.max(10,renameBox.x-70),top:Math.max(10,renameBox.y-14)}} onClick={e=>e.stopPropagation()}>
+                  <input autoFocus value={renameBox.value}
+                    placeholder={renameBox.kind==='node'?'State name…':'Transition label…'}
+                    onFocus={e=>e.target.select()}
+                    onChange={e=>setRenameBox(r=>({...r,value:e.target.value}))}
+                    onBlur={commitRenameBox}
+                    onKeyDown={e=>{
+                      // Enter delegates to blur() rather than calling commitRenameBox()
+                      // directly — unmounting the input (which commit's own setRenameBox(null)
+                      // triggers) can fire a native blur synchronously too, and that would
+                      // invoke this render's onBlur closure a second time with the same
+                      // still-non-null renameBox, double-writing the store. Routing through
+                      // one real blur event keeps there being exactly one commit path.
+                      if(e.key==='Enter'){e.preventDefault();e.target.blur();}
+                      else if(e.key==='Escape'){e.stopPropagation();setRenameBox(null);}
+                    }}/>
                 </div>
               )}
               {!mermaidStr
@@ -1568,12 +2053,50 @@ export default function CommandCenter() {
             {/* M-Files */}
             <div className="deliver-section">
               <div className="deliver-section-lbl">M-Files Sync</div>
-              <button onClick={()=>setMfAdv(a=>!a)} style={{background:'none',border:'none',cursor:'pointer',color:'var(--mid)',fontSize:9,fontFamily:'var(--mono)',padding:'2px 0',marginBottom:4,textAlign:'left'}}>
-                {mfAdv?'▾':'▸'} Connection settings
-              </button>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
+                <button onClick={()=>setMfAdv(a=>!a)} style={{background:'none',border:'none',cursor:'pointer',color:'var(--mid)',fontSize:9,fontFamily:'var(--mono)',padding:'2px 0',textAlign:'left'}}>
+                  {mfAdv?'▾':'▸'} Connection settings
+                </button>
+                <div style={{display:'flex',gap:8}}>
+                  <button onClick={handleFetchVaultTree} disabled={mfBusy} title="Re-fetch the vault list from the server" style={{background:'none',border:'none',cursor:mfBusy?'default':'pointer',opacity:mfBusy?0.4:1,color:'var(--a2)',fontSize:9,fontFamily:'var(--mono)',padding:0}}>
+                    ⟳ Refresh
+                  </button>
+                  <button onClick={handleClearMfSync} disabled={mfBusy} title="Clear the fetched vault list, selection, and log" style={{background:'none',border:'none',cursor:mfBusy?'default':'pointer',opacity:mfBusy?0.4:1,color:'var(--red)',fontSize:9,fontFamily:'var(--mono)',padding:0}}>
+                    Clear All
+                  </button>
+                </div>
+              </div>
               {mfAdv&&<div className="mf-adv">
                 <input className="mf-input" value={mfServer} onChange={e=>setMfServer(e.target.value)} placeholder="Server (localhost)"/>
-                <input className="mf-input" value={mfVault} onChange={e=>setMfVault(e.target.value)} placeholder="Vault GUID"/>
+
+                <button className="xb" style={{width:'100%',padding:'5px 0',fontSize:9.5}} onClick={handleFetchVaultTree} disabled={mfBusy}>
+                  {mfBusy?'…':'⟳ Fetch Vaults'}
+                </button>
+                {mfVaultTree.length>0&&<div className="mf-vault-tree" style={{marginTop:4,marginBottom:4,maxHeight:180,overflowY:'auto',border:'1px solid var(--border)',borderRadius:4}}>
+                  {mfVaultTree.map(v=>{
+                    const isOpen=mfExpandedVault===v.guid;
+                    const wfs=mfVaultTreeWorkflows[v.guid];
+                    return (
+                      <div key={v.guid} style={{borderBottom:'1px solid var(--border)'}}>
+                        <button onClick={()=>handleToggleVaultExpand(v.guid)} style={{width:'100%',textAlign:'left',padding:'5px 6px',background:v.guid===mfVault?'var(--s3)':'transparent',border:'none',cursor:'pointer',fontSize:9.5,fontFamily:'var(--mono)',color:'var(--text)',display:'flex',alignItems:'center',gap:5}}>
+                          <span style={{color:'var(--mid)'}}>{isOpen?'▾':'▸'}</span>
+                          <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{v.name||v.guid}</span>
+                        </button>
+                        {isOpen&&<div style={{paddingLeft:16,paddingBottom:4}}>
+                          {wfs==='loading'&&<div style={{fontSize:8.5,color:'var(--mid)',padding:'3px 0'}}>Loading workflows…</div>}
+                          {wfs&&wfs.error&&<div style={{fontSize:8.5,color:'var(--red)',padding:'3px 0'}}>{wfs.error}</div>}
+                          {Array.isArray(wfs)&&wfs.length===0&&<div style={{fontSize:8.5,color:'var(--mid)',padding:'3px 0'}}>No workflows found</div>}
+                          {Array.isArray(wfs)&&wfs.map(w=>(
+                            <button key={w.id} onClick={()=>handleSelectTreeWorkflow(v.guid,w.id)} disabled={mfBusy} style={{display:'block',width:'100%',textAlign:'left',padding:'3px 6px',background:'transparent',border:'none',cursor:'pointer',fontSize:9,fontFamily:'var(--mono)',color:'var(--a2)'}}>
+                              → {w.name}
+                            </button>
+                          ))}
+                        </div>}
+                      </div>
+                    );
+                  })}
+                </div>}
+
                 <div style={{display:'flex',gap:6}}>
                   <select value={mfAuth} onChange={e=>setMfAuth(e.target.value)} className="mf-input" style={{flex:1}}>
                     <option value="windows">Windows SSO</option>
@@ -1586,25 +2109,22 @@ export default function CommandCenter() {
                 </>}
               </div>}
 
-              {!mfVault.trim()&&<div style={{fontSize:8.5,color:'var(--red)',marginTop:4,lineHeight:1.6}}>A Vault GUID is required to connect.</div>}
+              {!mfVault.trim()&&<div style={{fontSize:8.5,color:'var(--red)',marginTop:4,lineHeight:1.6}}>Fetch Vaults and pick one to connect.</div>}
 
               {/* Unified Sync Menu */}
               <div style={{marginTop:12,borderTop:'1px solid var(--border)',paddingTop:8}}>
-                <div style={{fontSize:8.5,color:'var(--mid)',marginBottom:8}}>
-                  Target vault: <span style={{color:mfVault.trim()?'var(--text)':'var(--red)'}}>{mfServer.trim() || 'not set'}</span>
-                </div>
                 <div style={{display:'flex',gap:4,marginBottom:8,background:'var(--s2)',padding:3,borderRadius:4,border:'1px solid var(--border)'}}>
                   <button onClick={()=>{setSyncMode('export');setMfOk(null);setMfLog([]);}} style={{flex:1,padding:'4px 0',fontSize:9,fontFamily:'var(--mono)',background:syncMode==='export'?'var(--s3)':'transparent',color:syncMode==='export'?'var(--text)':'var(--mid)',border:syncMode==='export'?'1px solid var(--border)':'1px solid transparent',borderRadius:3,cursor:'pointer',transition:'all 0.15s'}}>
                     Export to Vault
                   </button>
-                  <button onClick={()=>{setSyncMode('import');setMfOk(null);setMfLog([]);setMfPullQueue([]);setMfVaultWorkflows([]);}} style={{flex:1,padding:'4px 0',fontSize:9,fontFamily:'var(--mono)',background:syncMode==='import'?'var(--s3)':'transparent',color:syncMode==='import'?'var(--text)':'var(--mid)',border:syncMode==='import'?'1px solid var(--border)':'1px solid transparent',borderRadius:3,cursor:'pointer',transition:'all 0.15s'}}>
+                  <button onClick={()=>{setSyncMode('import');setMfOk(null);setMfLog([]);}} style={{flex:1,padding:'4px 0',fontSize:9,fontFamily:'var(--mono)',background:syncMode==='import'?'var(--s3)':'transparent',color:syncMode==='import'?'var(--text)':'var(--mid)',border:syncMode==='import'?'1px solid var(--border)':'1px solid transparent',borderRadius:3,cursor:'pointer',transition:'all 0.15s'}}>
                     Import from Vault
                   </button>
                 </div>
 
                 {syncMode==='export' && (
                   <div>
-                    <SyncQueue available={workflows} queue={mfPushQueue} setQueue={setMfPushQueue} stagedLabel="Staged for Push" />
+                    <SyncQueue available={workflows} queue={mfPushQueue} setQueue={setMfPushQueue} stagedLabel="Staged for Push" onDeleteItem={deleteWorkflow} />
                     <button className={`xb ${saveFlash?'green':''}`} style={{width:'100%',padding:'6px 0',fontSize:10,marginTop:6}} onClick={handleSave} disabled={mfBusy||!mfVault.trim()||!mfPushQueue.length}>
                       {saveFlash?'✓ Saved':'Review & Save →'}
                     </button>
@@ -1618,27 +2138,13 @@ export default function CommandCenter() {
                 )}
 
                 {syncMode==='import' && (
-                  <div>
-                    {mfVaultWorkflows.length===0 ? (
-                      <button className="xb" style={{width:'100%',padding:'6px 0',fontSize:10}} onClick={handleMfFetch} disabled={mfBusy||!mfVault.trim()}>
-                        {mfBusy?'Fetching…':'Fetch Vault Workflows'}
-                      </button>
-                    ) : (
-                      <>
-                        <div style={{display:'flex',justifyContent:'flex-end',marginBottom:4}}>
-                          <button onClick={handleMfFetch} disabled={mfBusy||!mfVault.trim()} style={{background:'none',border:'none',color:'var(--a2)',cursor:'pointer',fontSize:9,fontFamily:'var(--mono)'}}>⟳ Refresh List</button>
-                        </div>
-                        <SyncQueue available={mfVaultWorkflows} queue={mfPullQueue} setQueue={setMfPullQueue} stagedLabel="Staged for Pull" />
-                        <button className="xb green" style={{width:'100%',padding:'6px 0',fontSize:10,marginTop:6}} onClick={handleMfPull} disabled={mfBusy||!mfVault.trim()||!mfPullQueue.length}>
-                          {mfBusy?'Pulling…':'← Pull Staged into Tabs'}
-                        </button>
-                      </>
-                    )}
+                  <div style={{fontSize:9.5,color:'var(--mid)',textAlign:'center',padding:'12px 8px',lineHeight:1.6}}>
+                    ↑ Use the vault list in <strong style={{color:'var(--text)'}}>Connection settings</strong> above — expand a vault, then click a workflow to import it directly.
                   </div>
                 )}
               </div>
 
-              {mfLog.length>0&&<div className="mf-log" ref={mfLogRef} onScroll={()=>keepLogAtBottom(mfLogRef.current, mfLogFollowRef)} style={{marginTop:12}}>{mfLog.map((l,i)=><div key={i} ref={i===mfLog.length-1?mfLogTailRef:null} className="ll"><span className="lt">{l.ts}</span><span className={l.t==='ok'?'lok':l.t==='error'?'lerr':'linf'}>{l.msg}</span></div>)}</div>}
+              {mfLog.length>0&&<div className="mf-log mf-log-float" ref={mfLogRef} onScroll={()=>keepLogAtBottom(mfLogRef.current, mfLogFollowRef)}>{mfLog.map((l,i)=><div key={i} ref={i===mfLog.length-1?mfLogTailRef:null} className="ll"><span className="lt">{l.ts}</span><span className={l.t==='ok'?'lok':l.t==='warn'?'lwarn':l.t==='error'?'lerr':'linf'}>{l.msg}</span></div>)}</div>}
             </div>
           </div>
         </div>
@@ -1662,7 +2168,12 @@ function Sec({icon,title,count,isOpen,onToggle,onAdd,filterSlot,children}){
   );
 }
 
-function SyncQueue({ available, queue, setQueue, stagedLabel }) {
+// onDeleteItem (optional): when provided, the staged row's ✕ deletes the
+// underlying item itself (matching ContextTabStrip's top-left tab ✕), not
+// just unstages it -- confirmed via screenshot this is the expected behavior,
+// same as the existing top-left tabs, no confirmation dialog either (matching
+// ContextTabStrip's onDelete, which also fires immediately on click).
+function SyncQueue({ available, queue, setQueue, stagedLabel, onDeleteItem }) {
   const unqueued = available.filter(w => !queue.includes(w.id));
   return (
     <div className="q-list">
@@ -1683,7 +2194,7 @@ function SyncQueue({ available, queue, setQueue, stagedLabel }) {
         return (
           <div key={w.id} className="q-row staged">
             <span className="q-name">{w.name}</span>
-            <button className="q-btn del" onClick={() => setQueue(q => q.filter(x => x !== id))}>✕</button>
+            <button className="q-btn del" title={onDeleteItem?'Delete this workflow':'Remove from staged'} onClick={() => { setQueue(q => q.filter(x => x !== id)); onDeleteItem?.(id); }}>✕</button>
           </div>
         );
       })}

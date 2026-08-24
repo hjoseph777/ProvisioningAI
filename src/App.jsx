@@ -170,6 +170,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13
 .deliver-title{font-size:10.5px;font-weight:600;color:var(--text)}
 .deliver-sub{font-size:8.5px;color:var(--mid);margin-top:1px}
 .mf-log{background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:9px 11px;font-size:9.5px;line-height:1.9;max-height:160px;overflow-y:auto}
+/* "Menu Studio" — the M-Files activity log floated bottom-right. Anchored to
+   the bottom (not top) deliberately: the Deliver panel's content above it
+   (Documents/SOW/PRD, M-Files Sync, Connection settings, the vault tree) has
+   variable height, and a top anchor landed the log directly on top of the
+   Documents row. The bottom-right corner stays empty regardless of how much
+   content is above it, so this can't recur as that content grows/shrinks. */
+.mf-log-float{position:fixed;bottom:12px;right:12px;width:300px;z-index:500;box-shadow:0 4px 16px rgba(0,0,0,0.35)}
 .mf-adv{background:var(--s2);border:1px solid var(--border);border-radius:5px;padding:10px;display:flex;flex-direction:column;gap:7px}
 .mf-input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:3px;padding:5px 8px;font-family:var(--mono);font-size:10px;color:var(--text);outline:none;box-sizing:border-box}
 .mf-input:focus{border-color:var(--a2)}
@@ -210,22 +217,59 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13
 .png-compare-card-actions{display:flex;align-items:center}
 .png-compare-image{display:block;width:100%;height:auto;background:#fff}
 .diagram-wrap svg{width:100%;height:auto;display:block;background:transparent!important;background-color:transparent!important}
-/* Object palette — Mermaid-side equivalent of BPMN's element rail (same
+/* Editing palette — Mermaid-side equivalent of BPMN's element rail (same
    labeled-tile visual language as .bpmn-pal-tile, deliberately reused rather
-   than reinvented), limited to what this canvas actually has (states only —
-   see the JSX comment for why there's no Gateway/Pool/Connector tile).
-   Overlaid on diagram-wrap's top-left corner rather than a real flex-sibling
-   rail like BPMN's, since this canvas's layout wasn't built with a side-rail
-   slot and two tiles don't need a whole reserved column. Still Mermaid, not
-   React Flow — this only ever calls the existing addState() action. */
-.studio-pal-rail{position:absolute;top:14px;left:16px;width:132px;background:rgba(7,17,31,.9);backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:7px;padding:8px;display:flex;flex-direction:column;gap:6px;z-index:20;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+   than reinvented), limited to what this canvas actually has (states +
+   transitions — see the JSX comment for why there's no Gateway/Pool/
+   Connector tile). Overlaid on diagram-wrap's top-left corner rather than a
+   real flex-sibling rail like BPMN's, since this canvas's layout wasn't
+   built with a side-rail slot — this stays an absolute overlay even now that
+   it's collapsible, so a plain width transition on the inner clip wrapper is
+   safe (no position-snap glitch to work around, unlike BPMN's pinned/hover
+   dual-mode palette, which changes position:relative<->absolute on toggle).
+   The toggle button itself lives in the toolbar (.panel-toggle, cc-col-head)
+   rather than floating here over the canvas — moved there per operator
+   request, this shell is now just the sliding panel's positioning anchor.
+   Still Mermaid, not React Flow. */
+.studio-pal-shell{position:absolute;top:14px;left:16px;z-index:20}
+/* Panel content is always rendered at its full intended width; this
+   wrapper's own width is what animates 0<->175px, clipping (not reflowing)
+   the content — the same "clip, don't reflow" trick BPMN's pinned palette
+   uses, so button text never wraps awkwardly mid-transition. 175px matches
+   BPMN's own .bpmn-pal-shell.pinned width exactly — reused rather than a
+   fresh number, consistent narrow "tool palette" sizing across both canvases.
+   Narrowed from an original 300px per operator request (real estate over the
+   canvas, no quick way to tell how much space it was costing at a glance). */
+.studio-pal-panel-clip{width:175px;overflow:hidden;transition:width .3s ease}
+.studio-pal-shell.closed .studio-pal-panel-clip{width:0}
+.studio-pal-panel{width:175px;background:rgba(7,17,31,.9);backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:7px;padding:8px;display:flex;flex-direction:column;gap:8px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.studio-pal-group{display:flex;flex-direction:column;gap:4px}
 .studio-pal-rail-lbl{font-size:8px;color:var(--mid);letter-spacing:.8px;text-transform:uppercase;padding:0 2px}
-.studio-pal-tile{display:flex;align-items:center;gap:8px;padding:6px 8px;width:100%;background:var(--s3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:10px;cursor:pointer;transition:all .15s;text-align:left}
+.studio-pal-tile{display:flex;align-items:center;gap:6px;padding:5px 6px;width:100%;background:var(--s3);border:1px solid var(--border);border-radius:5px;color:var(--text);font-family:var(--mono);font-size:9.5px;cursor:pointer;transition:all .15s;text-align:left;white-space:nowrap}
 .studio-pal-tile:hover{border-color:var(--a2);color:var(--a3);background:var(--s4)}
+.studio-pal-tile.danger:hover{border-color:var(--red);color:var(--red)}
+.studio-pal-tile:disabled{opacity:.35;cursor:not-allowed}
+.studio-pal-tile:disabled:hover{border-color:var(--border);color:var(--text);background:var(--s3)}
 /* .diagram-wrap svg{width:100%;height:auto} (meant for the Mermaid render)
-   otherwise stretches these lucide icons to fill their button — this rail
+   otherwise stretches these lucide icons to fill their button — this palette
    lives inside diagram-wrap so it needs an explicit override. */
-.studio-pal-tile svg{width:13px!important;height:13px!important;flex-shrink:0}
+.studio-pal-tile svg{width:12px!important;height:12px!important;flex-shrink:0}
+/* Undo/Redo share one row, half-width each — the two-small-buttons-side-by-side
+   layout this narrower palette has real room for, unlike every other action
+   here which needs its full row for a real label. */
+.studio-pal-row2{display:flex;gap:4px}
+.studio-pal-row2 .studio-pal-tile{justify-content:center}
+.studio-pal-label-input{width:100%;background:var(--s3);border:1px solid var(--border);border-radius:5px;padding:5px 6px;color:var(--text);font-family:var(--mono);font-size:9.5px;box-sizing:border-box}
+.studio-pal-label-input:focus{outline:none;border-color:var(--a2)}
+.studio-pal-empty-hint{font-size:8.5px;color:var(--dim);font-style:italic;padding:2px;line-height:1.4}
+/* Inline-rename overlay — a small fixed-position input near the double-clicked
+   node/edge or the context menu's "Edit Label" trigger. Not a true SVG text
+   swap (positioning/font-matching an editable node inside a Mermaid-rendered
+   <g> is far riskier for comparatively little UX gain over a docked field
+   right next to it) — see the investigation report this was scoped from. */
+.studio-rename-box{z-index:200}
+.studio-rename-box input{background:var(--s2);border:1px solid var(--a2);border-radius:5px;padding:5px 8px;color:var(--text);font-family:var(--mono);font-size:11px;box-shadow:0 8px 20px rgba(0,0,0,.4);min-width:160px}
+.studio-rename-box input:focus{outline:none}
 .zoom-badge{position:absolute;bottom:14px;right:16px;background:rgba(5,14,26,.88);border:1px solid var(--border);border-radius:6px;padding:4px 10px 4px 12px;font-size:9px;font-family:var(--mono);color:var(--mid);display:flex;align-items:center;gap:7px;backdrop-filter:blur(6px);pointer-events:auto;z-index:20;user-select:none}
 .zoom-badge span{color:var(--a3);letter-spacing:.5px}
 .zoom-badge button{background:none;border:none;cursor:pointer;color:var(--mid);font-size:13px;padding:0;line-height:1;transition:color .15s}
@@ -242,6 +286,12 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13
 /* ── Shared utilities ── */
 .panel-toggle{width:22px;height:22px;border-radius:4px;border:1px solid var(--border);background:var(--s2);color:var(--mid);cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s;padding:0;line-height:1;margin-right:4px}
 .panel-toggle:hover{border-color:var(--a2);color:var(--a3);background:var(--s3)}
+/* Palette toggle — a .panel-toggle carrying a permanent blue tint (not just
+   on hover, like its plain left/right siblings) so it visibly "belongs to"
+   the editing palette's own blue accent language instead of reading as an
+   identical, unlabeled third chevron. */
+.panel-toggle.palette-toggle{border-color:var(--a2);color:var(--a3);background:rgba(74,159,255,.1)}
+.panel-toggle.palette-toggle:hover{background:rgba(74,159,255,.2)}
 .xb{font-size:9.5px;font-family:var(--mono);padding:4px 10px;border-radius:3px;border:1px solid var(--border);background:transparent;color:var(--mid2);cursor:pointer;transition:all .15s;white-space:nowrap;flex-shrink:0}
 .xb:hover{border-color:var(--a2);color:var(--a3)}
 .xb.blue{background:var(--accent);border-color:var(--accent);color:#fff}
