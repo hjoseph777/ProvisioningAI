@@ -74,7 +74,13 @@ export function readConversionLog() {
   return read();
 }
 
-/** Clears the log. Present so the data is the user's to discard. */
+/**
+ * Clears the log. Exported so the data can be discarded, but nothing in
+ * the UI calls it yet - there is no log viewer, which is deliberate at
+ * this stage. Wire this to a control before anyone relies on being able
+ * to clear it, since the entries hold verbatim text from whatever
+ * document was converted.
+ */
 export function clearConversionLog() {
   write([]);
 }

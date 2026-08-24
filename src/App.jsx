@@ -775,6 +775,18 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
 /* Paste Diagram dialog (M-Files Flow). Secondary text uses --mid2, not
    --mid/--dim, per the 2026-08-22 contrast pass - --dim on --s3 measured
    ~1.4:1 live, so it is not used for anything readable here. */
+.mflow-import-tabs{display:flex;gap:2px;padding:0 14px;border-bottom:1px solid var(--border)}
+.mflow-import-tab{display:flex;align-items:center;gap:6px;background:none;border:none;border-bottom:2px solid transparent;color:var(--mid2);font-size:11px;padding:8px 10px;cursor:pointer;margin-bottom:-1px}
+.mflow-import-tab:hover{color:var(--a3)}
+.mflow-import-tab.active{color:var(--a3);border-bottom-color:var(--a2)}
+.mflow-import-key{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:7px 10px;font-family:var(--mono);font-size:11px}
+.mflow-import-key:focus{outline:none;border-color:var(--a2)}
+.mflow-import-key::placeholder{color:var(--mid2);opacity:.55}
+.mflow-import-draftrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mflow-import-drafted{font-size:10px;color:var(--a3)}
+.mflow-spin{animation:mflow-spin 1s linear infinite}
+@keyframes mflow-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.mflow-spin{animation:none}}
 .mflow-import-backdrop{position:fixed;inset:0;background:rgba(3,9,16,.72);display:flex;align-items:center;justify-content:center;z-index:200}
 .mflow-import{width:min(660px,92vw);max-height:86vh;display:flex;flex-direction:column;background:var(--s1);border:1px solid var(--bdr2);border-radius:8px;box-shadow:0 18px 48px rgba(0,0,0,.5)}
 .mflow-import-head{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--border);color:var(--a3)}

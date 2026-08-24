@@ -1332,7 +1332,7 @@ export default function MFlowCanvas() {
   // changes, and no diamond/hub flag is ever set here (those stay derived
   // from real edge counts). One snapshot up front so Undo reverses the
   // whole import as a single step rather than state by state.
-  const applyImport = (parsed) => {
+  const applyImport = (parsed, meta = {}) => {
     if (!wf || !parsed) return;
     takeSnapshot();
 
@@ -1378,13 +1378,14 @@ export default function MFlowCanvas() {
     // the exact text of each refusal. The learning loop that consumes this
     // is phase 2, but the data has to start accumulating now or it will not
     // exist when that gets built.
-    logConversion('paste-import', {
+    logConversion(meta.draftedFromDocument ? 'sow-draft' : 'paste-import', {
       statesImported: parsed.states.length,
       transitionsImported: parsed.transitions.length,
       unresolvedCount: parsed.unsupported.length,
       unresolved: parsed.unsupported.map(u => ({ text: u.text, reason: u.reason })),
       conditions: parsed.transitions.map(t => t.conditions).filter(Boolean),
       initialDropped: alreadyHasInitial && parsed.states.some(st => st.initial),
+      editedAfterDraft: !!meta.editedAfterDraft,
       renamed: [...finalName.entries()]
         .filter(([from, to]) => from !== to)
         .map(([from, to]) => ({ from, to })),

@@ -541,7 +541,10 @@ ipcMain.handle('sow:claude-extract', async (_event, { apiKey, model, systemPromp
     );
     const raw   = data.content?.[0]?.text || '';
     const clean = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-    return { ok: true, json: clean };
+    // stopReason is additive - existing callers read only .json. Without it
+    // a response cut short at max_tokens is indistinguishable from a
+    // complete one, and a truncated workflow still parses cleanly.
+    return { ok: true, json: clean, stopReason: data.stop_reason || null };
   } catch (e) {
     return { ok: false, error: e.message };
   }
