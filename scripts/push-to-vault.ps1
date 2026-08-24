@@ -10,13 +10,32 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. "$PSScriptRoot\_mfiles-common.ps1"
 function pLog  { param([string]$m) Write-Output "[PROGRESS] $m"; [Console]::Out.Flush() }
 function pOK   { param([string]$m) Write-Output "[SUCCESS] $m";  [Console]::Out.Flush() }
 function pWarn { param([string]$m) Write-Output "[WARN] $m";     [Console]::Out.Flush() }
 function pErr  { param([string]$m) Write-Output "[ERROR] $m";    [Console]::Out.Flush() }
+# Emits a machine-readable result the caller can trust over exit-code-alone --
+# main.cjs previously treated exit 0 as "ok: true" for BOTH a real create AND
+# the duplicate-name skip branch, so the UI reported "success" even when
+# nothing was actually written. status is one of: created | skipped | error.
+function pResult {
+    param([string]$Status, [hashtable]$Extra = @{})
+    $obj = @{ status = $Status } + $Extra
+    Write-Output "[RESULT]$($obj | ConvertTo-Json -Compress)"
+}
 try {
     if (-not (Test-Path $JsonPath)) { throw "JSON not found: $JsonPath" }
-    $json = Get-Content $JsonPath -Raw | ConvertFrom-Json
+    # Explicit -Encoding UTF8 is required here -- Get-Content's default encoding
+    # is this system's legacy OEM codepage (confirmed live: "OEM United States"),
+    # which misreads a UTF-8-without-BOM file (exactly what Node's
+    # fs.writeFile(..., 'utf8') produces) as if each byte were a separate
+    # single-byte character. Confirmed root cause of two real symptoms: a real
+    # "📥" (imported-workflow icon) name corrupting to "ðŸ“¥ ..." on write,
+    # and real French state names ("Contrôle", "Crédit") corrupting the same way.
+    # This is a read-side bug distinct from the OutputEncoding (write-side) fix
+    # already in _mfiles-common.ps1 -- fixing one does not fix the other.
+    $json = Get-Content $JsonPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $wf   = if ($json -is [array]) { $json[0] } else { $json }
     if (-not $wf.name)   { throw "Missing name" }
     if (-not $wf.states) { throw "Missing states" }
@@ -40,6 +59,7 @@ try {
         if ($e.Workflow.Name -ieq $wf.name) {
             pWarn "Workflow '$($wf.name)' already exists (ID=$($e.Workflow.ID)) - skipping"
             pOK "Done (no changes made)"
+            pResult -Status 'skipped' -Extra @{ existingId = $e.Workflow.ID; name = $wf.name }
             exit 0
         }
     }
@@ -49,6 +69,7 @@ try {
     $createdWf = $vault.WorkflowOperations.AddWorkflowAdmin($wfAdmin)
     $wfId = $createdWf.Workflow.ID
     pOK "Workflow shell created (ID=$wfId)"
+
     pLog "Adding $($wf.states.Count) states..."
     $nameToStateId = @{}
     $wfAdminFresh  = $vault.WorkflowOperations.GetWorkflowAdmin($wfId)
@@ -74,6 +95,9 @@ try {
     $wfFinal = $vault.WorkflowOperations.GetWorkflowAdmin($wfId)
     foreach ($st in $wfFinal.States) { $nameToStateId[$st.Name] = $st.ID }
     pLog "State ID map built: $($nameToStateId.Count) entries"
+    if ($wfFinal.States.Count -ne $wf.states.Count) {
+        pWarn "Expected $($wf.states.Count) states but vault reports $($wfFinal.States.Count) after commit -- some may have silently failed to add"
+    }
     $initState = $wf.states | Where-Object { $_.initial -eq $true } | Select-Object -First 1
     if ($initState -and $nameToStateId.ContainsKey($initState.name)) {
         $wfInit = $vault.WorkflowOperations.GetWorkflowAdmin($wfId)
@@ -109,12 +133,19 @@ try {
         $vault.WorkflowOperations.UpdateWorkflowAdmin($wfForTr) | Out-Null
     }
     if ($skipped -gt 0) { pWarn "$skipped transition(s) skipped" }
+    $wfCheck = $vault.WorkflowOperations.GetWorkflowAdmin($wfId)
+    $realTransitionCount = $wfCheck.StateTransitions.Count
+    if ($realTransitionCount -ne ($wf.transitions.Count - $skipped)) {
+        pWarn "Expected $($wf.transitions.Count - $skipped) transitions but vault reports $realTransitionCount after commit"
+    }
     pOK ""
     pOK "SUCCESS: Workflow '$($wf.name)' created (ID=$wfId)"
-    pOK "$($wf.states.Count) states  $($wf.transitions.Count - $skipped) transitions"
+    pOK "$($wfFinal.States.Count) states  $realTransitionCount transitions"
     pWarn "Phase 2: Preconditions, ACLs, and permissions via M-Files Admin"
+    pResult -Status 'created' -Extra @{ workflowId = $wfId; name = $wf.name; statesAdded = $wfFinal.States.Count; transitionsAdded = $realTransitionCount }
     exit 0
 } catch {
     pErr $_.Exception.Message
+    pResult -Status 'error' -Extra @{ message = $_.Exception.Message }
     exit 1
 }

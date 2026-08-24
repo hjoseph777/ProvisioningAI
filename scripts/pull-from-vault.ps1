@@ -10,8 +10,26 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. "$PSScriptRoot\_mfiles-common.ps1"
 
 function pLog  { param([string]$m) Write-Output "[PROGRESS] $m"; [Console]::Out.Flush() }
+
+# ConvertTo-Json does not escape every C0 control character the JSON spec requires
+# (confirmed: a raw 0x1A/SUB inside a real workflow's VBScript action comment,
+# "' ALIAS <SUB> ID", passed straight through as a literal unescaped byte -- valid
+# per ConvertTo-Json's own rules, invalid JSON per spec, and JSON.parse on the
+# Electron side correctly rejects it as "Bad control character in string literal").
+# Strip any raw C0 control byte ConvertTo-Json doesn't already escape correctly
+# (tab/newline/carriage-return ARE escaped correctly and are left alone).
+function ConvertTo-JsonSafeString {
+    param([string]$Text)
+    if ($null -eq $Text) { return $Text }
+    $chars = $Text.ToCharArray() | Where-Object {
+        $code = [int]$_
+        $code -ge 0x20 -or $code -eq 0x09 -or $code -eq 0x0A -or $code -eq 0x0D
+    }
+    return -join $chars
+}
 
 function Is-VisibleWorkflow {
     param([object]$wf)
@@ -55,7 +73,7 @@ try {
             foreach ($wf in $workflows) {
                 if (-not (Is-VisibleWorkflow $wf)) { continue }
                 $id = [int]$wf.ID
-                $name = [string]$wf.Name
+                $name = ConvertTo-JsonSafeString ([string]$wf.Name)
                 if ($id -le 0 -or [string]::IsNullOrWhiteSpace($name)) { continue }
                 if ($seen.ContainsKey($id)) { continue }
                 $seen[$id] = $true
@@ -69,7 +87,7 @@ try {
                 $core = $wf.Workflow
                 if (-not (Is-VisibleWorkflow $core)) { continue }
                 $id = [int]$core.ID
-                $name = [string]$core.Name
+                $name = ConvertTo-JsonSafeString ([string]$core.Name)
                 if ($id -le 0 -or [string]::IsNullOrWhiteSpace($name)) { continue }
                 if ($seen.ContainsKey($id)) { continue }
                 $seen[$id] = $true
@@ -77,7 +95,11 @@ try {
             }
         }
 
-        $json = $list | ConvertTo-Json -Depth 5 -Compress
+        # @() | ConvertTo-Json emits nothing at all (empty pipeline, zero output) --
+        # explicitly emit '[]' for the zero-workflow case (a real, valid result --
+        # a vault with no workflows -- not a script failure) so the caller gets
+        # parseable JSON either way instead of a bare "[RESULT]" with nothing after it.
+        $json = if ($list.Count -gt 0) { $list | ConvertTo-Json -Depth 5 -Compress } else { '[]' }
         Write-Output "[RESULT]$json"
         exit 0
     }
@@ -95,7 +117,7 @@ try {
         
         $wfJson = @{
             id          = $wfAdmin.Workflow.ID
-            name        = $wfAdmin.Workflow.Name
+            name        = ConvertTo-JsonSafeString $wfAdmin.Workflow.Name
             source      = 'mfiles'
             importedAt  = (Get-Date).ToString("yyyy-MM-ddTHH:mm:ss")
             states      = @()
@@ -107,21 +129,24 @@ try {
         # Build ID to Name map for transitions
         $stateMap = @{}
         foreach ($s in $wfAdmin.States) {
-            $stateMap[$s.ID] = $s.Name
-            
+            $safeName = ConvertTo-JsonSafeString $s.Name
+            $stateMap[$s.ID] = $safeName
+
             # Map state
             $stateJson = @{
-                name = $s.Name
+                name = $safeName
                 initial = $false # Initial logic might need tweaking based on M-Files semantics, usually ID=0 or logic.
             }
             if ($s.SemanticAliases -and $s.SemanticAliases.Value) {
-                $stateJson.alias = $s.SemanticAliases.Value
+                $stateJson.alias = ConvertTo-JsonSafeString $s.SemanticAliases.Value
             }
-            # Add action text if present (to avoid data loss)
+            # Add action text if present (to avoid data loss) -- this is real,
+            # human-authored VBScript and the most likely place to carry stray
+            # control-character artifacts (confirmed live: a raw 0x1A here).
             if ($s.ActionRunVBScript) {
                 $wfJson.scripts += @{
-                    state = $s.Name
-                    text  = $s.ActionRunVBScriptDefinition
+                    state = $safeName
+                    text  = ConvertTo-JsonSafeString $s.ActionRunVBScriptDefinition
                 }
             }
             $wfJson.states += $stateJson
@@ -140,7 +165,7 @@ try {
                 $transJson = @{
                     from  = $fromName
                     to    = $toName
-                    label = $t.Name
+                    label = ConvertTo-JsonSafeString $t.Name
                 }
                 $wfJson.transitions += $transJson
             }

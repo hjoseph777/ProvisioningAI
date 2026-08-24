@@ -2,13 +2,19 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('mfiles', {
-  // payload: { vaultGuid, server, authType, username, password }
+  // Enumerates vaults available on the server -- no vault GUID needed as input.
+  // payload: { server }
+  // returns: { ok, vaults: [{ name, guid }] } | { ok: false, error }
   listVaults:   (payload)  => ipcRenderer.invoke('mfiles:list-vaults', payload),
   // payload: { vaultGuid, server, authType, username, password }
   listWorkflows: (payload) => ipcRenderer.invoke('mfiles:list-workflows', payload),
   // payload: { workflowIds, vaultGuid, server, authType, username, password }
   pullWorkflows: (payload) => ipcRenderer.invoke('mfiles:pull-workflows', payload),
   // payload: { json, vaultGuid, server, authType, username, password }
+  // returns: { ok: true, status: 'created', workflowId, name, statesAdded, transitionsAdded }
+  //        | { ok: false, status: 'skipped'|'error', error }
+  // status reflects the script's REAL outcome, not just exit code -- a
+  // duplicate-name skip is a real, distinct outcome, not a success.
   pushWorkflow: (payload)  => ipcRenderer.invoke('mfiles:push', payload),
   // Subscribe to streaming progress — wrapper strips IPC event arg so cb receives message string directly
   onProgress:   (cb)       => ipcRenderer.on('mfiles:progress', (_e, msg) => cb(msg)),

@@ -64,34 +64,55 @@ function translatorCliPath () {
 // Uses MFilesServerApplication (server-side COM) so it works even
 // while M-Files Desktop has an active client session on this vault.
 // Script: scripts/test-connection.ps1
+// Enumerates the vaults actually available on the server -- no vault GUID
+// needed as input, since the whole point is the operator doesn't have to
+// already know one. Vault GUIDs churn between environments/restores, so the
+// UI fetches this live rather than trusting a hardcoded default.
 ipcMain.handle('mfiles:list-vaults', async (_event, payload) => {
-  const {
-    vaultGuid   = '{E7E445BE-3AEF-425F-9D4D-BFCC33008C9E}',
-    server      = 'localhost',
-    authType    = 'windows',
-    username    = '',
-    password    = '',
-  } = payload || {};
+  const { server = 'localhost' } = payload || {};
 
   return new Promise((resolve) => {
+    let resultJson = '';
+    let lastError = '';
+    // A chunk that continues an already-started [RESULT] payload (large JSON
+    // split across multiple stdout 'data' events) has no [RESULT] marker of its
+    // own -- without this flag it fell into the line-based progress/error branch
+    // and got silently dropped, truncating the JSON. Once seen, every subsequent
+    // chunk is unconditionally part of the payload, not re-parsed as lines.
+    let inResult = false;
     const ps = spawn('powershell.exe', [
       '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-      '-File',          scriptPath('test-connection.ps1'),
-      '-VaultGuid',     vaultGuid,
+      '-File',          scriptPath('list-vaults.ps1'),
       '-ServerAddress', server,
-      '-AuthType',      authType === 'mfiles' ? 'MFiles' : 'Windows',
-      '-Username',      username,
-      '-Password',      password,
     ]);
 
-    let out = '';
-    ps.stdout.on('data', d => { out += d.toString(); });
-    ps.stderr.on('data', d => { out += d.toString(); });
-    ps.on('close', code => {
-      const ok        = code === 0 && out.includes('OK:');
-      const vaultName = ok ? (out.match(/OK:(.+)/)?.[1]?.trim() || '') : '';
-      const error     = ok ? '' : out.replace(/OK:[^\n]*/g, '').trim();
-      resolve({ ok, vaultName, error });
+    ps.stdout.on('data', d => {
+      const text = d.toString();
+      if (!inResult && text.includes('[RESULT]')) {
+        inResult = true;
+        resultJson += text.substring(text.indexOf('[RESULT]') + 8);
+      } else if (inResult) {
+        resultJson += text;
+      } else {
+        text.split('\n').filter(l => l.trim()).forEach(line => {
+          if (line.includes('[ERROR]')) lastError = line.replace(/\[ERROR\]\s*/, '').trim();
+        });
+      }
+    });
+    ps.stderr.on('data', d => { lastError = d.toString().trim() || lastError; });
+
+    ps.on('close', (code) => {
+      if (code === 0 && resultJson) {
+        try {
+          let parsed = JSON.parse(resultJson);
+          if (parsed && !Array.isArray(parsed)) parsed = [parsed];
+          resolve({ ok: true, vaults: parsed || [] });
+        } catch (e) {
+          resolve({ ok: false, error: 'Failed to parse JSON from PowerShell' });
+        }
+      } else {
+        resolve({ ok: false, error: lastError || 'Failed to list vaults from server' });
+      }
     });
   });
 });
@@ -121,6 +142,7 @@ ipcMain.handle('mfiles:push', async (event, payload) => {
 
   return new Promise((resolve) => {
     let lastError = '';
+    let resultJson = '';
 
     const ps = spawn('powershell.exe', [
       '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
@@ -136,8 +158,18 @@ ipcMain.handle('mfiles:push', async (event, payload) => {
 
     ps.stdout.on('data', d => {
       d.toString().split('\n').filter(l => l.trim()).forEach(line => {
-        send(line);
-        if (line.includes('[ERROR]')) lastError = line.replace(/\[ERROR\]\s*/,'').trim();
+        // [RESULT] is a short, single-line, -Compress JSON summary -- kept out
+        // of the human-readable progress log and parsed separately below so
+        // the UI reports the script's REAL outcome (created/skipped/error)
+        // instead of just trusting exit code 0, which the skip-duplicate path
+        // also returns -- that's what let a "success" message show even when
+        // nothing was actually written to the vault.
+        if (line.includes('[RESULT]')) {
+          resultJson += line.substring(line.indexOf('[RESULT]') + 8);
+        } else {
+          send(line);
+          if (line.includes('[ERROR]')) lastError = line.replace(/\[ERROR\]\s*/,'').trim();
+        }
       });
     });
     ps.stderr.on('data', d => {
@@ -148,7 +180,18 @@ ipcMain.handle('mfiles:push', async (event, payload) => {
 
     ps.on('close', async (code) => {
       await unlink(tmpFile).catch(() => {});
-      resolve({ ok: code === 0, exitCode: code, error: lastError || '' });
+      let result = null;
+      try { result = resultJson ? JSON.parse(resultJson) : null; } catch (e) { /* fall through to the honest-failure branch below */ }
+
+      if (result?.status === 'created') {
+        resolve({ ok: true, status: 'created', workflowId: result.workflowId, name: result.name, statesAdded: result.statesAdded, transitionsAdded: result.transitionsAdded });
+      } else if (result?.status === 'skipped') {
+        resolve({ ok: false, status: 'skipped', existingId: result.existingId, error: `Workflow "${result.name}" already exists (ID=${result.existingId}) -- nothing was pushed` });
+      } else if (result?.status === 'error') {
+        resolve({ ok: false, status: 'error', error: result.message || lastError || 'Push failed' });
+      } else {
+        resolve({ ok: false, status: 'error', error: lastError || 'Push produced no parseable result -- treat as failed, not succeeded' });
+      }
     });
   });
 });
@@ -158,6 +201,10 @@ ipcMain.handle('mfiles:list-workflows', async (_event, { vaultGuid, server, auth
   return new Promise((resolve) => {
     let resultJson = '';
     let lastError = '';
+    // See the identical comment in mfiles:list-vaults -- a continuation chunk of
+    // an already-started [RESULT] payload has no marker of its own and must not
+    // be re-parsed as progress/error lines, or the JSON silently truncates.
+    let inResult = false;
     const ps = spawn('powershell.exe', [
       '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
       '-File',          scriptPath('pull-from-vault.ps1'),
@@ -171,8 +218,11 @@ ipcMain.handle('mfiles:list-workflows', async (_event, { vaultGuid, server, auth
 
     ps.stdout.on('data', d => {
       const text = d.toString();
-      if (text.includes('[RESULT]')) {
+      if (!inResult && text.includes('[RESULT]')) {
+        inResult = true;
         resultJson += text.substring(text.indexOf('[RESULT]') + 8);
+      } else if (inResult) {
+        resultJson += text;
       } else {
         text.split('\n').filter(l => l.trim()).forEach(line => {
           if (line.includes('[ERROR]')) lastError = line.replace(/\[ERROR\]\s*/, '').trim();
@@ -188,7 +238,12 @@ ipcMain.handle('mfiles:list-workflows', async (_event, { vaultGuid, server, auth
           if (parsed && !Array.isArray(parsed)) parsed = [parsed];
           resolve({ ok: true, workflows: parsed || [] });
         } catch (e) {
-          resolve({ ok: false, error: 'Failed to parse JSON from PowerShell' });
+          // A genuine parse failure and "the script emitted only whitespace" used to
+          // collapse into the same generic message, indistinguishable from each other.
+          // Include the JS error and a preview of what PowerShell actually sent so a
+          // real malformed-JSON bug is diagnosable without re-instrumenting this handler.
+          const preview = resultJson.trim().slice(0, 200);
+          resolve({ ok: false, error: `Failed to parse JSON from PowerShell (${e.message})${preview ? `: ${JSON.stringify(preview)}` : ' — no output received'}` });
         }
       } else {
         resolve({ ok: false, error: lastError || 'Failed to list workflows from vault' });
@@ -206,6 +261,14 @@ ipcMain.handle('mfiles:pull-workflows', async (_event, { vaultGuid, server, auth
 
   return new Promise((resolve) => {
     let resultJson = '';
+    // See the identical comment in mfiles:list-vaults -- a continuation chunk of
+    // an already-started [RESULT] payload has no marker of its own. This handler
+    // in particular can return a large multi-state/multi-transition JSON payload
+    // that routinely spans multiple stdout 'data' events; without this flag every
+    // chunk after the first was misrouted into send() as a bogus progress line and
+    // silently dropped from resultJson, truncating the JSON and failing to parse --
+    // confirmed live, reproducibly, independent of which workflow was pulled.
+    let inResult = false;
     const ps = spawn('powershell.exe', [
       '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
       '-File',          scriptPath('pull-from-vault.ps1'),
@@ -219,8 +282,11 @@ ipcMain.handle('mfiles:pull-workflows', async (_event, { vaultGuid, server, auth
 
     ps.stdout.on('data', d => {
       const text = d.toString();
-      if (text.includes('[RESULT]')) {
+      if (!inResult && text.includes('[RESULT]')) {
+        inResult = true;
         resultJson += text.substring(text.indexOf('[RESULT]') + 8);
+      } else if (inResult) {
+        resultJson += text;
       } else {
         text.split('\n').filter(l => l.trim()).forEach(send);
       }

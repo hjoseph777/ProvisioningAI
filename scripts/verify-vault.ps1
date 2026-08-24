@@ -4,6 +4,7 @@ param(
     [int]   $Port          = 2266
 )
 $ErrorActionPreference = 'Stop'
+. "$PSScriptRoot\_mfiles-common.ps1"
 try {
     $srvApp = New-Object -ComObject MFilesAPI.MFilesServerApplication
     $srvApp.ConnectWithoutLogin($null, 'ncacn_ip_tcp', $ServerAddress, [string]$Port, '', '', '') | Out-Null
