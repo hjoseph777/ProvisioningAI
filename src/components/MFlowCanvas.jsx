@@ -13,6 +13,7 @@ import SaveIndicator from './SaveIndicator';
 import HScrollBar from './HScrollBar';
 import ImportDialog from './mflow/ImportDialog';
 import { layoutStates } from '../utils/mermaidImport';
+import { logConversion } from '../utils/conversionLog';
 
 // ── M-Files Flow ─────────────────────────────────────────────────
 // Clean-slate rebuild, NOT an edit to CommandCenter.jsx (Studio). Shares
@@ -1371,6 +1372,22 @@ export default function MFlowCanvas() {
         label: t.label || undefined,
         conditions: t.conditions,
       });
+    });
+
+    // Every conversion gets recorded - what parsed, what was refused, and
+    // the exact text of each refusal. The learning loop that consumes this
+    // is phase 2, but the data has to start accumulating now or it will not
+    // exist when that gets built.
+    logConversion('paste-import', {
+      statesImported: parsed.states.length,
+      transitionsImported: parsed.transitions.length,
+      unresolvedCount: parsed.unsupported.length,
+      unresolved: parsed.unsupported.map(u => ({ text: u.text, reason: u.reason })),
+      conditions: parsed.transitions.map(t => t.conditions).filter(Boolean),
+      initialDropped: alreadyHasInitial && parsed.states.some(st => st.initial),
+      renamed: [...finalName.entries()]
+        .filter(([from, to]) => from !== to)
+        .map(([from, to]) => ({ from, to })),
     });
   };
 
