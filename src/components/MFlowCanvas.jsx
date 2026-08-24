@@ -11,6 +11,8 @@ import MFlowPalette from './mflow/MFlowPalette';
 import LiveTranslationView from './mflow/LiveTranslationView';
 import SaveIndicator from './SaveIndicator';
 import HScrollBar from './HScrollBar';
+import ImportDialog from './mflow/ImportDialog';
+import { layoutStates } from '../utils/mermaidImport';
 
 // ── M-Files Flow ─────────────────────────────────────────────────
 // Clean-slate rebuild, NOT an edit to CommandCenter.jsx (Studio). Shares
@@ -199,6 +201,7 @@ export default function MFlowCanvas() {
   const updateRule = useWorkflowStore(s => s.updateRule);
   const deleteRule = useWorkflowStore(s => s.deleteRule);
   const takeSnapshot = useWorkflowStore(s => s.takeSnapshot);
+  const [importOpen, setImportOpen] = useState(false);
   const undo = useWorkflowStore(s => s.undo);
   const redo = useWorkflowStore(s => s.redo);
   // Subscribed directly (not via canUndo()/canRedo() functions) so the menu
@@ -1322,6 +1325,55 @@ export default function MFlowCanvas() {
   // Names are the lookup key everywhere in this shared data model (Mermaid
   // rendering, selection, transitions), so this has to be unique or two
   // same-named states would collide.
+
+  // Turns a parsed diagram into real states and transitions using the same
+  // addState/addTransition calls the palette tiles already use - no store
+  // changes, and no diamond/hub flag is ever set here (those stay derived
+  // from real edge counts). One snapshot up front so Undo reverses the
+  // whole import as a single step rather than state by state.
+  const applyImport = (parsed) => {
+    if (!wf || !parsed) return;
+    takeSnapshot();
+
+    // Existing names win: importing must never silently rename or merge
+    // into a state already on the canvas, so collisions get a suffix.
+    const taken = new Set((wf.states || []).map(st => st.name));
+    const finalName = new Map();
+    parsed.states.forEach(st => {
+      let name = st.name;
+      let n = 2;
+      while (taken.has(name)) { name = `${st.name} (${n})`; n += 1; }
+      taken.add(name);
+      finalName.set(st.name, name);
+    });
+
+    // A workflow can only have one initial state - importing a second one
+    // makes the translator fail validation outright with
+    // MULTIPLE_INITIAL_STATES, so the flag is dropped rather than carried
+    // in. Not silent: the dialog warns before the user commits.
+    const alreadyHasInitial = (wf.states || []).some(st => st.initial);
+
+    layoutStates(parsed.states, parsed.transitions).forEach(st => {
+      addState(activeId, {
+        name: finalName.get(st.name),
+        initial: alreadyHasInitial ? false : st.initial,
+        terminal: st.terminal,
+        x: st.x,
+        y: st.y,
+        color: stateColor,
+      });
+    });
+
+    parsed.transitions.forEach(t => {
+      addTransition(activeId, {
+        from: finalName.get(t.from) || t.from,
+        to: finalName.get(t.to) || t.to,
+        label: t.label || undefined,
+        conditions: t.conditions,
+      });
+    });
+  };
+
   const uniqueStateName = base => {
     const existing = new Set((wf?.states || []).map(s => s.name));
     if (!existing.has(base)) return base;
@@ -1559,6 +1611,10 @@ export default function MFlowCanvas() {
       onCollapse={() => setLeftPanelCollapsed(true)} onExpand={() => setLeftPanelCollapsed(false)}
       className="mflow-split-left">
     <div className="mflow-shell">
+      {importOpen && (
+        <ImportDialog onClose={() => setImportOpen(false)} onImport={applyImport}
+          workflowHasInitial={(wf?.states || []).some(st => st.initial)}/>
+      )}
       <MFlowPalette
         pinned={palettePinned}
         onTogglePinned={() => setPalettePinned(p => !p)}
@@ -1566,6 +1622,7 @@ export default function MFlowCanvas() {
         onAddInitialState={() => { if (wf) { takeSnapshot(); addState(activeId, { name: uniqueStateName('New Initial State'), initial: true, color: stateColor }); } }}
         onAddEndState={() => { if (wf) { takeSnapshot(); addState(activeId, { name: uniqueStateName('New End State'), terminal: true, color: stateColor }); } }}
         onAddComment={() => { if (wf) { takeSnapshot(); addComment(activeId, undefined, commentColor); } }}
+        onPasteDiagram={() => { if (wf) setImportOpen(true); }}
         onAddDecision={() => {
           if (!wf) return;
           takeSnapshot();

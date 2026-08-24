@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { RectangleHorizontal, Play, CircleStop, Pin, PinOff, StickyNote, Diamond, GitMerge, Search, ArrowRight } from 'lucide-react';
+import { RectangleHorizontal, Play, CircleStop, Pin, PinOff, StickyNote, Diamond, GitMerge, Search, ArrowRight, ClipboardPaste } from 'lucide-react';
 
 // Left-side palette for M-Files Flow — shell pattern (collapsible icon rail,
 // pin-to-expand, search, categorized sections) adopted from BpmnPalette.jsx
@@ -66,6 +66,7 @@ function Tile({ Icon, label, title, size, onClick, compact }) {
 
 export default function MFlowPalette({
   onAddState, onAddInitialState, onAddEndState, onAddComment, onAddDecision,
+  onPasteDiagram,
   pinned, onTogglePinned,
   selectedState, onSetStateColor,
   stateColor, onSetStateDefaultColor,
@@ -100,6 +101,8 @@ export default function MFlowPalette({
       items: [
         { key: 'decision', label: 'Decision', Icon: Diamond, size: 12,
           title: 'Decision — adds one state and two outcome states, pre-wired with two transitions. The diamond is the existing 2+-outgoing auto-detect firing on real data, not a new shape.' },
+        { key: 'paste', label: 'Paste Diagram', Icon: ClipboardPaste, size: 12,
+          title: 'Paste Diagram: turn a Mermaid stateDiagram-v2 into real states and transitions. Shows what will be added first, and lists any line it could not use rather than guessing.' },
       ],
     },
     {
@@ -174,7 +177,7 @@ export default function MFlowPalette({
                           </div>
                         ) : (
                           <Tile key={item.key} Icon={item.Icon} label={item.label} title={item.title} size={item.size}
-                            onClick={item.key === 'initial' ? onAddInitialState : item.key === 'decision' ? onAddDecision : onAddEndState}/>
+                            onClick={item.key === 'initial' ? onAddInitialState : item.key === 'decision' ? onAddDecision : item.key === 'paste' ? onPasteDiagram : onAddEndState}/>
                         )
                       ))}
                     </div>
@@ -232,7 +235,7 @@ export default function MFlowPalette({
                     : item.key === 'status'
                     ? <button type="button" key={item.key} className="mflow-pal-tile compact" onClick={onAddComment} title={item.label}><StickyNote size={13} strokeWidth={2}/></button>
                     : <Tile key={item.key} Icon={item.Icon} label={item.label} title={item.title} size={item.size} compact
-                        onClick={item.key === 'initial' ? onAddInitialState : item.key === 'decision' ? onAddDecision : onAddEndState}/>
+                        onClick={item.key === 'initial' ? onAddInitialState : item.key === 'decision' ? onAddDecision : item.key === 'paste' ? onPasteDiagram : onAddEndState}/>
                 ))}
               </div>
             ))}
