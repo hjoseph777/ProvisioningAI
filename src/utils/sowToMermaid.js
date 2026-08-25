@@ -10,10 +10,40 @@
 // nothing the model produces is trusted on its own, and a draft that does
 // not survive the grammar shows up as flagged lines rather than as states.
 //
-// Reuses the existing window.sow.claudeExtract IPC bridge, so no new
-// transport and no key is stored anywhere by this file.
+// Reuses the existing window.sow IPC bridges, so no new transport and no
+// key is stored anywhere by this file.
+//
+// Two providers are supported on purpose. Which model drafts matters far
+// less than the parser that judges the draft, so requiring a paid key to
+// try the feature at all would be the wrong tradeoff. OpenRouter serves
+// free models and is OpenAI-compatible, which covers most other services
+// too.
 
-const MODEL = "claude-opus-5";
+export const PROVIDERS = {
+  anthropic: {
+    label: "Anthropic",
+    defaultModel: "claude-opus-5",
+    keyHint: "sk-ant-...",
+    keyUrl: "console.anthropic.com",
+    bridge: "claudeExtract",
+  },
+  openrouter: {
+    label: "OpenRouter",
+    // A free model by default, so the feature can be tried without spend.
+    // Any OpenRouter model id works; this is only the starting value.
+    //
+    // Note for whoever changes this: ox-alpha is a stealth model whose
+    // provider retains prompts and completions. Fine for a generic sample
+    // document, worth a second thought before a real client's process
+    // description goes through it.
+    defaultModel: "minimax/minimax-m2.7:free",
+    keyHint: "sk-or-v1-...",
+    keyUrl: "openrouter.ai/keys",
+    bridge: "openaiExtract",
+  },
+};
+
+export const DEFAULT_PROVIDER = "openrouter";
 
 // Names the grammar exactly, and when a trigger will not fit that grammar
 // the model must carry the document's own wording through as the label
@@ -132,16 +162,25 @@ export function looksTruncated(mermaid, stopReason) {
  * Draft Mermaid from SOW/PRD prose.
  * Returns { ok, mermaid } or { ok: false, error }.
  */
-export async function draftMermaidFromSow({ apiKey, text, model = MODEL }) {
+export async function draftMermaidFromSow({
+  apiKey,
+  text,
+  provider = DEFAULT_PROVIDER,
+  model,
+}) {
+  const cfg = PROVIDERS[provider];
+  if (!cfg) return { ok: false, error: `Unknown provider "${provider}".` };
+
   const doc = String(text || "").trim();
   if (!doc) return { ok: false, error: "Paste the SOW or PRD text first." };
   if (!apiKey)
     return {
       ok: false,
-      error: "An Anthropic API key is needed to draft from a document.",
+      error: `A ${cfg.label} API key is needed to draft from a document. Get one at ${cfg.keyUrl}.`,
     };
 
-  if (!window.sow?.claudeExtract) {
+  const bridge = window.sow?.[cfg.bridge];
+  if (!bridge) {
     return {
       ok: false,
       error:
@@ -150,9 +189,9 @@ export async function draftMermaidFromSow({ apiKey, text, model = MODEL }) {
   }
 
   try {
-    const res = await window.sow.claudeExtract({
+    const res = await bridge({
       apiKey: apiKey.trim(),
-      model,
+      model: model || cfg.defaultModel,
       systemPrompt: SYSTEM_PROMPT,
       text: doc,
     });

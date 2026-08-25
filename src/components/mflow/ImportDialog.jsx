@@ -19,7 +19,11 @@ import {
   Loader2,
 } from "lucide-react";
 import { parseMermaidText } from "../../utils/mermaidImport";
-import { draftMermaidFromSow } from "../../utils/sowToMermaid";
+import {
+  draftMermaidFromSow,
+  PROVIDERS,
+  DEFAULT_PROVIDER,
+} from "../../utils/sowToMermaid";
 
 const SAMPLE = `stateDiagram-v2
     [*] --> Draft
@@ -41,6 +45,10 @@ export default function ImportDialog({
   // key fields do the same. No credential in this app is written to disk,
   // and this is not the place to be the first.
   const [apiKey, setApiKey] = useState("");
+  // Defaults to the provider with a free tier, so the feature can be
+  // tried without buying anything. Which model drafts matters far less
+  // than the parser that judges the draft.
+  const [provider, setProvider] = useState(DEFAULT_PROVIDER);
   const [drafting, setDrafting] = useState(false);
   const [draftError, setDraftError] = useState(null);
   const [draftedFrom, setDraftedFrom] = useState(false);
@@ -70,7 +78,7 @@ export default function ImportDialog({
     setDrafting(true);
     setDraftError(null);
     try {
-      const res = await draftMermaidFromSow({ apiKey, text: sowText });
+      const res = await draftMermaidFromSow({ apiKey, text: sowText, provider });
       if (!res.ok) {
         setDraftError(res.error);
         return;
@@ -151,8 +159,35 @@ export default function ImportDialog({
                 onChange={(e) => setSowText(e.target.value)}
               />
 
+              <label className="mflow-import-lbl" htmlFor="mflow-import-provider">
+                Model provider
+              </label>
+              <div className="mflow-import-providerrow">
+                <select
+                  id="mflow-import-provider"
+                  className="mflow-import-select"
+                  value={provider}
+                  onChange={(e) => {
+                    setProvider(e.target.value);
+                    // Keys are provider-specific, so carrying one across
+                    // would only produce a confusing auth error.
+                    setApiKey("");
+                    setDraftError(null);
+                  }}
+                >
+                  {Object.entries(PROVIDERS).map(([id, cfg]) => (
+                    <option key={id} value={id}>
+                      {cfg.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="mflow-import-modelname">
+                  {PROVIDERS[provider].defaultModel}
+                </span>
+              </div>
+
               <label className="mflow-import-lbl" htmlFor="mflow-import-key">
-                Anthropic API key
+                {PROVIDERS[provider].label} API key
               </label>
               <input
                 id="mflow-import-key"
@@ -160,10 +195,14 @@ export default function ImportDialog({
                 type="password"
                 autoComplete="off"
                 spellCheck="false"
-                placeholder="sk-ant-..."
+                placeholder={PROVIDERS[provider].keyHint}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
               />
+              <span className="mflow-import-keyhint">
+                Free to create at {PROVIDERS[provider].keyUrl}. Held in memory
+                only, never written to disk.
+              </span>
 
               <div className="mflow-import-draftrow">
                 <button
