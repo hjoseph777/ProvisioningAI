@@ -85,6 +85,16 @@ Copy the document's own words in as the label instead. Do not leave the transiti
 
 An unlabelled transition means something specific: a person performs it by hand with no condition attached. Only write a bare transition when the document actually describes that. Using it for "the document said something I could not encode" is wrong, because it silently converts an unresolved trigger into a confident claim that no trigger exists. The label you copy through is preserved and flagged for a human; a bare edge is not.
 
+A ROLE AND A CONDITION CANNOT BE COMBINED
+There is no form that carries both who performs a transition and a condition on it. A label holds one thing, and it never contains a second colon.
+
+  SOW: "agreements over 50000 Euros can be signed only by the Executive Management Team"
+  WRITE:   Review --> Signed : value over 50000 Euros can be signed only by the Executive Management Team
+  NOT:     Review --> Signed : role(ExecutiveManagementTeam)+esign : value over 50000 Euros
+  NOT:     Review --> Signed : role(ExecutiveManagementTeam)+esign
+
+Writing a valid role and then appending the condition after a second colon produces a label that matches nothing, so the whole transition is refused and both halves are lost. Dropping the condition to keep the role is worse, because it silently claims anyone in that role may do this regardless of value. Copy the document's wording through instead and let a human resolve it.
+
 OTHER RULES
 - NEVER invent a condition, a property name, a group name or a number that the document does not state.
 - if() tests equality only. There is no greater-than, less-than or range form. For a threshold, copy the document's wording through as the label.
