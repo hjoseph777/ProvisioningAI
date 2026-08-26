@@ -383,6 +383,33 @@ export function parseMermaidText(raw) {
     );
   }
 
+  // Two different states cannot share one display name. Resolving both to
+  // the same string silently merges them, and any transition between the
+  // two becomes a self-loop that the document never described, with
+  // nothing flagged. Keep the first, refuse the later rename, and say so.
+  {
+    const claimed = new Map(); // display name -> id that holds it
+    order.forEach((id) => {
+      const st = seen.get(id);
+      const owner = claimed.get(st.name);
+      if (owner === undefined || owner === id) {
+        claimed.set(st.name, id);
+        return;
+      }
+      const clash = renames.find((r) => r.id === id && r.to === st.name);
+      flag(
+        clash ? clash.line : 0,
+        clash ? `${id} : ${st.name}` : id,
+        `"${st.name}" is already the name of a different state ("${owner}"), so this display name was not applied and "${id}" keeps its own name. Two states cannot share one name, and merging them would silently turn any transition between them into a loop.`,
+      );
+      st.name = id;
+      // The rename did not happen, so it must not be reported as if it did.
+      const idx = renames.indexOf(clash);
+      if (idx !== -1) renames.splice(idx, 1);
+      claimed.set(id, id);
+    });
+  }
+
   // Resolve ids to display names now that every declaration has been seen.
   const nameOf = (id) => (seen.has(id) ? seen.get(id).name : id);
   const states = order.map((id) => {

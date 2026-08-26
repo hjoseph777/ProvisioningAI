@@ -32,11 +32,16 @@ export const PROVIDERS = {
     // A free model by default, so the feature can be tried without spend.
     // Any OpenRouter model id works; this is only the starting value.
     //
-    // Note for whoever changes this: ox-alpha is a stealth model whose
-    // provider retains prompts and completions. Fine for a generic sample
-    // document, worth a second thought before a real client's process
-    // description goes through it.
+    // Worth knowing before pointing this at a real client document: free
+    // tiers, this default included, generally allow the provider to retain
+    // prompts and completions for training. Fine for a generic sample
+    // document like the Acme SOW, a decision worth making deliberately for
+    // anything describing a real customer's process. The dialog says so
+    // next to the picker; keep that note in step with whatever is default
+    // here.
     defaultModel: "minimax/minimax-m2.7:free",
+    retentionNote:
+      "Free models generally let the provider keep what you send for training. Fine for a sample document, worth a thought before a real client's process description.",
     keyHint: "sk-or-v1-...",
     keyUrl: "openrouter.ai/keys",
     bridge: "openaiExtract",

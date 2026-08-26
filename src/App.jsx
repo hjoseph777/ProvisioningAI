@@ -792,6 +792,7 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
 .mflow-import-select:focus{outline:none;border-color:var(--a2)}
 .mflow-import-modelname{font-family:var(--mono);font-size:10px;color:var(--mid2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mflow-import-keyhint{font-size:10px;color:var(--mid2);line-height:1.5}
+.mflow-import-retention{font-size:10px;color:var(--gold);line-height:1.5;border-left:2px solid var(--gold);padding-left:7px}
 .mflow-import-backdrop{position:fixed;inset:0;background:rgba(3,9,16,.72);display:flex;align-items:center;justify-content:center;z-index:200}
 .mflow-import{width:min(660px,92vw);max-height:86vh;display:flex;flex-direction:column;background:var(--s1);border:1px solid var(--bdr2);border-radius:8px;box-shadow:0 18px 48px rgba(0,0,0,.5)}
 .mflow-import-head{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--border);color:var(--a3)}

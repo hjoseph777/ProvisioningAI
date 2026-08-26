@@ -186,6 +186,12 @@ export default function ImportDialog({
                 </span>
               </div>
 
+              {PROVIDERS[provider].retentionNote && (
+                <span className="mflow-import-retention">
+                  {PROVIDERS[provider].retentionNote}
+                </span>
+              )}
+
               <label className="mflow-import-lbl" htmlFor="mflow-import-key">
                 {PROVIDERS[provider].label} API key
               </label>
