@@ -389,24 +389,36 @@ export function parseMermaidText(raw) {
   // nothing flagged. Keep the first, refuse the later rename, and say so.
   {
     const claimed = new Map(); // display name -> id that holds it
+
+    // Reserve every id first. A refused alias falls back to the state's own
+    // id, so that id has to be guaranteed free before any alias is applied.
+    // Without this, an alias naming some OTHER state's id gets refused,
+    // falls back onto that same taken name, and the merge it was meant to
+    // prevent happens anyway.
+    order.forEach((id) => claimed.set(id, id));
+
     order.forEach((id) => {
       const st = seen.get(id);
+      if (st.name === id) return; // no alias applied, its id is already reserved
+
       const owner = claimed.get(st.name);
-      if (owner === undefined || owner === id) {
+      if (owner === undefined) {
         claimed.set(st.name, id);
         return;
       }
-      const clash = renames.find((r) => r.id === id && r.to === st.name);
+
+      // Repeated aliases for one id mean the LAST one produced the current
+      // name, so that is the entry to report and remove.
+      const clash = renames.findLast((r) => r.id === id && r.to === st.name);
       flag(
-        clash ? clash.line : 0,
-        clash ? `${id} : ${st.name}` : id,
+        clash.line,
+        `${id} : ${st.name}`,
         `"${st.name}" is already the name of a different state ("${owner}"), so this display name was not applied and "${id}" keeps its own name. Two states cannot share one name, and merging them would silently turn any transition between them into a loop.`,
       );
       st.name = id;
       // The rename did not happen, so it must not be reported as if it did.
       const idx = renames.indexOf(clash);
       if (idx !== -1) renames.splice(idx, 1);
-      claimed.set(id, id);
     });
   }
 
