@@ -23,6 +23,15 @@ public sealed class ParsedDiagram
 
     public bool UsesExplicitDeclarations => DeclaredStates.Count > 0;
 
+    /// <summary>
+    /// ID → real display label, captured from `ID : Label` lines (useMermaid.js always
+    /// pairs one with the state's own `state ID` line — the ID is the sanitized token used
+    /// everywhere for structural identity, the label is the real, possibly-accented,
+    /// possibly-spaced original name). Absent for any state that never had one, which is
+    /// not an error — plenty of valid diagrams never use this declaration form at all.
+    /// </summary>
+    public Dictionary<string, string> StateLabels { get; } = new();
+
     public HashSet<string> ChoiceStateNames { get; } = new();
 
     /// <summary>
@@ -49,10 +58,10 @@ public sealed class ParsedDiagram
 /// <summary>
 /// Parses the narrow subset of Mermaid `stateDiagram-v2` this project's §3.5 convention
 /// actually uses: `A --&gt; B`, `A --&gt; B : label`, `[*]` start/end pseudostates, plain
-/// `state X` pre-declarations, and `state X &lt;&lt;choice&gt;&gt;` declarations. Anything
-/// else (notes, classDef, direction, composite states, …) is out of scope and reported as
-/// a Warning rather than crashing — this tool reads text, it does not need to be a general
-/// Mermaid engine.
+/// `state X` pre-declarations, `state X &lt;&lt;choice&gt;&gt;` declarations, and `X : Label`
+/// display-name declarations. Anything else (notes, classDef, direction, composite states,
+/// …) is out of scope and reported as a Warning rather than crashing — this tool reads
+/// text, it does not need to be a general Mermaid engine.
 /// </summary>
 public static class MermaidParser
 {
@@ -60,6 +69,17 @@ public static class MermaidParser
     private static readonly Regex SynchronizationDecl = new(@"^state\s+(\S+)\s+<<(fork|join)>>$", RegexOptions.Compiled);
     private static readonly Regex StateDecl = new(@"^state\s+(\S+)$", RegexOptions.Compiled);
     private static readonly Regex EdgeLine = new(@"^(\S+)\s*-->\s*(\S+)\s*(?::\s*(.+))?$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// `ID : Label` — real Mermaid's separate display-name declaration for a state
+    /// already introduced by its own `state ID` line (useMermaid.js always emits
+    /// the pair together, never one without the other). Requires no `-->`, so it
+    /// can never collide with EdgeLine. The label is purely cosmetic Mermaid
+    /// rendering text; this project's plan only needs the ID for structure, which
+    /// the paired `state ID` line already registered — so this is recognized and
+    /// accepted, not modeled further.
+    /// </summary>
+    private static readonly Regex StateLabelDecl = new(@"^(\S+)\s*:\s*(.+)$", RegexOptions.Compiled);
 
     public static ParsedDiagram Parse(string mermaidText)
     {
@@ -118,6 +138,13 @@ public static class MermaidParser
                 continue;
             }
 
+            var stateLabelMatch = StateLabelDecl.Match(line);
+            if (stateLabelMatch.Success)
+            {
+                diagram.StateLabels[stateLabelMatch.Groups[1].Value] = stateLabelMatch.Groups[2].Value.Trim();
+                continue;
+            }
+
             var edgeMatch = EdgeLine.Match(line);
             if (edgeMatch.Success)
             {
@@ -136,7 +163,7 @@ public static class MermaidParser
             diagram.ParseIssues.Add(new ValidationIssue(
                 IssueSeverity.Warning,
                 "UNRECOGNIZED_LINE",
-                $"Line {lineNo} did not match any supported syntax (edge, `[*]` edge, `state X`, or `state X <<choice>>`) and was ignored: \"{line}\"."));
+                $"Line {lineNo} did not match any supported syntax (edge, `[*]` edge, `state X`, `state X <<choice>>`, or `X : Label`) and was ignored: \"{line}\"."));
         }
 
         // Choice ids are pseudostates, not real states, however they were first noticed.

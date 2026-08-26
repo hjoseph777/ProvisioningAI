@@ -1,0 +1,685 @@
+{
+  "_meta": {
+    "exportedAt": "2026-08-24T17:59:23.014Z",
+    "version": "2.0",
+    "tool": "ProvisioningAI Workflow Designer",
+    "target": "M-Files COM API"
+  },
+  "workflows": [
+    {
+      "id": "wf-da",
+      "name": "Document Approval",
+      "states": [
+        {
+          "name": "Draft",
+          "initial": true
+        },
+        {
+          "name": "Submitted",
+          "initial": false
+        },
+        {
+          "name": "Under Review",
+          "initial": false
+        },
+        {
+          "name": "Approved",
+          "initial": false
+        },
+        {
+          "name": "Rejected",
+          "initial": false
+        },
+        {
+          "name": "Closed",
+          "initial": false
+        }
+      ],
+      "transitions": [
+        {
+          "from": "Draft",
+          "to": "Submitted",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "Submitted",
+          "to": "Under Review",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "Under Review",
+          "to": "Approved",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "Under Review",
+          "to": "Rejected",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "Rejected",
+          "to": "Draft",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "Approved",
+          "to": "Closed",
+          "conditions": null,
+          "permissions": null
+        }
+      ]
+    },
+    {
+      "id": "4pvc3md",
+      "name": "📥 Conformity (imported 2026-08-24)",
+      "states": [
+        {
+          "name": "RTE-NewDocument_Clean_PO",
+          "initial": true
+        },
+        {
+          "name": "SQL_START_GET_VENDOR_ID",
+          "initial": false
+        },
+        {
+          "name": "UPD_VendorID_Complete",
+          "initial": false
+        },
+        {
+          "name": "RTE_Duplicate1",
+          "initial": false
+        },
+        {
+          "name": "RTE_NotDuplicate",
+          "initial": false
+        },
+        {
+          "name": "3- Contrôle doublon",
+          "initial": false
+        },
+        {
+          "name": "RTE_Missing Value",
+          "initial": false
+        },
+        {
+          "name": "UPD_DUPLICATE",
+          "initial": false
+        },
+        {
+          "name": "1- Contrôle facture",
+          "initial": false
+        },
+        {
+          "name": "RTE_InvoicesWithPO",
+          "initial": false
+        },
+        {
+          "name": "RTE_InvoicesWithoutPO",
+          "initial": false
+        },
+        {
+          "name": "RTE_CP1",
+          "initial": false
+        },
+        {
+          "name": "RTE_Duplicate2",
+          "initial": false
+        },
+        {
+          "name": "RTE_To Trash_Ctrl",
+          "initial": false
+        },
+        {
+          "name": "Control_Before_Move To Approval ( TESTING )",
+          "initial": false
+        },
+        {
+          "name": "RTE_Approval",
+          "initial": false
+        },
+        {
+          "name": "RTE_Statement_Ctrl",
+          "initial": false
+        },
+        {
+          "name": "Rte_OtherDoc_Ctrl",
+          "initial": false
+        },
+        {
+          "name": "Trash",
+          "initial": false
+        },
+        {
+          "name": "Rte_Archive_Ctrl",
+          "initial": false
+        },
+        {
+          "name": "SQL_START_ SET_CREDIT_OR_INVOICE",
+          "initial": false
+        },
+        {
+          "name": "UPD__Decoupe_Auto",
+          "initial": false
+        },
+        {
+          "name": "SQL_START_UPDATE_CP1",
+          "initial": false
+        },
+        {
+          "name": "SQL_END_UPDATE_CP1",
+          "initial": false
+        },
+        {
+          "name": "UPD_CP1",
+          "initial": false
+        },
+        {
+          "name": "UPD_EXPORT_VENDORLIST_CP1",
+          "initial": false
+        },
+        {
+          "name": "WAIT_SYNCH_CSV",
+          "initial": false
+        },
+        {
+          "name": "2- Contrôle aprentissage",
+          "initial": false
+        },
+        {
+          "name": "IN_TO_UPD_CP1",
+          "initial": false
+        },
+        {
+          "name": "OUT_TO_CTRL_DUPLICATE",
+          "initial": false
+        },
+        {
+          "name": "RTE_CP1_AUTO_SPLIT_DOCUMENT",
+          "initial": false
+        },
+        {
+          "name": "Set Decoupe Automatique",
+          "initial": false
+        },
+        {
+          "name": "UPD_To CP1",
+          "initial": false
+        },
+        {
+          "name": "OUT_TO_UPD_CP1",
+          "initial": false
+        },
+        {
+          "name": "UPD_Xtract Learning = NO",
+          "initial": false
+        },
+        {
+          "name": "UPD_DUPLICATE2",
+          "initial": false
+        },
+        {
+          "name": "SQL_END_GET_VENDOR_ID",
+          "initial": false
+        },
+        {
+          "name": "RTE_To Trash_Learn",
+          "initial": false
+        },
+        {
+          "name": "SQL_END_ SET_CREDIT_OR_INVOICE",
+          "initial": false
+        },
+        {
+          "name": "SQL_ERROR__GET_VENDOR_ID",
+          "initial": false
+        },
+        {
+          "name": "SQL_ERROR_ SET_CREDIT_OR_INVOICE",
+          "initial": false
+        },
+        {
+          "name": "SQL_ERROR_UPDATE_CP1",
+          "initial": false
+        },
+        {
+          "name": "RTE_To Trash_Ctrl[2]",
+          "initial": false
+        },
+        {
+          "name": "Rte_Archive_Ctrl[2]",
+          "initial": false
+        },
+        {
+          "name": "Learning = YES",
+          "initial": false
+        },
+        {
+          "name": "V3.03",
+          "initial": false
+        },
+        {
+          "name": "UPD_Learn = no",
+          "initial": false
+        }
+      ],
+      "transitions": [
+        {
+          "from": "RTE_Duplicate1",
+          "to": "RTE_NotDuplicate",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "RTE_Duplicate1",
+          "to": "3- Contrôle doublon",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "RTE_NotDuplicate",
+          "to": "1- Contrôle facture",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "RTE_Missing Value",
+          "to": "1- Contrôle facture",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "RTE_InvoicesWithPO",
+          "to": "RTE_CP1",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "RTE_InvoicesWithoutPO",
+          "to": "RTE_CP1",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "1- Contrôle facture",
+          "to": "RTE_InvoicesWithPO",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "1- Contrôle facture",
+          "to": "RTE_InvoicesWithoutPO",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "1- Contrôle facture",
+          "to": "RTE_To Trash_Ctrl",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "3- Contrôle doublon",
+          "to": "RTE-NewDocument_Clean_PO",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "Control_Before_Move To Approval ( TESTING )",
+          "to": "RTE_Approval",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "RTE-NewDocument_Clean_PO",
+          "to": "SQL_START_GET_VENDOR_ID",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "1- Contrôle facture",
+          "to": "RTE_Statement_Ctrl",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "1- Contrôle facture",
+          "to": "Rte_OtherDoc_Ctrl",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "RTE_To Trash_Ctrl",
+          "to": "Trash",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "RTE_Statement_Ctrl",
+          "to": "Trash",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "Rte_OtherDoc_Ctrl",
+          "to": "Trash",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "RTE_Approval",
+          "to": "Trash",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "1- Contrôle facture",
+          "to": "RTE_CP1",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "UPD_DUPLICATE",
+          "to": "RTE_Duplicate1",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "Rte_Archive_Ctrl",
+          "to": "Trash",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "1- Contrôle facture",
+          "to": "Rte_Archive_Ctrl",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "RTE_Duplicate2",
+          "to": "Control_Before_Move To Approval ( TESTING )",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "2- Contrôle aprentissage",
+          "to": "IN_TO_UPD_CP1",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "2- Contrôle aprentissage",
+          "to": "IN_TO_UPD_CP1",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "RTE_Duplicate2",
+          "to": "OUT_TO_CTRL_DUPLICATE",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "SQL_START_UPDATE_CP1",
+          "to": "SQL_END_UPDATE_CP1",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "SQL_END_UPDATE_CP1",
+          "to": "UPD_CP1",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "UPD_CP1",
+          "to": "UPD_EXPORT_VENDORLIST_CP1",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "UPD_EXPORT_VENDORLIST_CP1",
+          "to": "WAIT_SYNCH_CSV",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "WAIT_SYNCH_CSV",
+          "to": "2- Contrôle aprentissage",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "2- Contrôle aprentissage",
+          "to": "RTE_CP1_AUTO_SPLIT_DOCUMENT",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "Set Decoupe Automatique",
+          "to": "UPD__Decoupe_Auto",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "1- Contrôle facture",
+          "to": "UPD_To CP1",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "OUT_TO_UPD_CP1",
+          "to": "UPD_To CP1",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "UPD_To CP1",
+          "to": "RTE_To Trash_Ctrl",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "RTE_CP1_AUTO_SPLIT_DOCUMENT",
+          "to": "IN_TO_UPD_CP1",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "1- Contrôle facture",
+          "to": "Set Decoupe Automatique",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "2- Contrôle aprentissage",
+          "to": "Set Decoupe Automatique",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "UPD_VendorID_Complete",
+          "to": "SQL_START_ SET_CREDIT_OR_INVOICE",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "RTE_CP1",
+          "to": "UPD_Xtract Learning = NO",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "UPD_Xtract Learning = NO",
+          "to": "UPD_DUPLICATE2",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "UPD_DUPLICATE2",
+          "to": "RTE_Duplicate2",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "SQL_START_GET_VENDOR_ID",
+          "to": "SQL_END_GET_VENDOR_ID",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "SQL_END_GET_VENDOR_ID",
+          "to": "UPD_VendorID_Complete",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "RTE_To Trash_Learn",
+          "to": "Trash",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "2- Contrôle aprentissage",
+          "to": "RTE_To Trash_Learn",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "SQL_END_ SET_CREDIT_OR_INVOICE",
+          "to": "RTE_Missing Value",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "SQL_END_ SET_CREDIT_OR_INVOICE",
+          "to": "RTE_Missing Value",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "SQL_END_ SET_CREDIT_OR_INVOICE",
+          "to": "UPD_DUPLICATE",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "SQL_START_ SET_CREDIT_OR_INVOICE",
+          "to": "SQL_END_ SET_CREDIT_OR_INVOICE",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "SQL_START_GET_VENDOR_ID",
+          "to": "SQL_ERROR__GET_VENDOR_ID",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "SQL_START_ SET_CREDIT_OR_INVOICE",
+          "to": "SQL_ERROR_ SET_CREDIT_OR_INVOICE",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "SQL_START_UPDATE_CP1",
+          "to": "SQL_ERROR_UPDATE_CP1",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "SQL_ERROR_UPDATE_CP1",
+          "to": "SQL_START_UPDATE_CP1",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "SQL_ERROR__GET_VENDOR_ID",
+          "to": "SQL_START_GET_VENDOR_ID",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "SQL_ERROR_ SET_CREDIT_OR_INVOICE",
+          "to": "SQL_START_ SET_CREDIT_OR_INVOICE",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "3- Contrôle doublon",
+          "to": "RTE_To Trash_Ctrl[2]",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "3- Contrôle doublon",
+          "to": "Rte_Archive_Ctrl[2]",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "RTE_To Trash_Ctrl[2]",
+          "to": "Trash",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "Rte_Archive_Ctrl[2]",
+          "to": "Trash",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "RTE_CP1",
+          "to": "Learning = YES",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "Learning = YES",
+          "to": "SQL_START_UPDATE_CP1",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "Learning = YES",
+          "to": "2- Contrôle aprentissage",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "UPD__Decoupe_Auto",
+          "to": "SQL_START_UPDATE_CP1",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "2- Contrôle aprentissage",
+          "to": "UPD_Learn = no",
+          "conditions": null,
+          "permissions": null
+        },
+        {
+          "from": "UPD_Learn = no",
+          "to": "RTE_Duplicate2",
+          "conditions": null,
+          "permissions": null
+        }
+      ]
+    },
+    {
+      "id": "474kaz0",
+      "name": "New Workflow",
+      "states": [],
+      "transitions": []
+    }
+  ],
+  "users": [],
+  "properties": [],
+  "rules": []
+}

@@ -23,7 +23,13 @@ export const useMermaid = (workflow, options = {}) => {
   // caller that opts out, since its palette lets a state exist before any
   // one of them is marked Initial and the canvas shouldn't stay hidden for
   // that reason alone (see MFlowCanvas.jsx's own call site comment).
-  const { requireInitial = true, forTranslator = false } = options;
+  // noStateBox defaults false, preserving Mermaid's own plain [*] start
+  // marker for every existing call site (including M-Files Flow) — Studio
+  // is the only caller that opts in, rendering a real labeled "(no state)"
+  // box instead, matching the real M-Files Admin workflow editor's own
+  // convention (confirmed against a live screenshot of it) rather than
+  // Mermaid's generic filled-circle pseudostate marker.
+  const { requireInitial = true, forTranslator = false, noStateBox = false } = options;
 
   // Derive a stable cache key from the actual content — not the object reference
   const workflowKey = workflow?.id || workflow?.name || '';
@@ -42,6 +48,12 @@ export const useMermaid = (workflow, options = {}) => {
     // Declare every state node explicitly so isolated states still appear
     const stateIds = [];
     const coloredStates = []; // { id, color } — a state's own explicit override, independent of theme
+    // "(no state)" pseudo-box (noStateBox mode only) — declared once, on
+    // first use, then wired to every state marked initial (normally just
+    // one). Fixed id, not derived from any real state's name, so it can't
+    // collide with one.
+    const NO_STATE_ID = '__no_state__';
+    let noStateDeclared = false;
     states.forEach(s => {
       const name = (s.name || '').trim();
       if (!name) return;
@@ -61,7 +73,18 @@ export const useMermaid = (workflow, options = {}) => {
       // sees every state immediately, not just connected ones.
       d += `  state ${id}\n`;
       d += `  ${id} : ${name}\n`;
-      if (s.initial) d += `  [*] --> ${id}\n`;
+      if (s.initial) {
+        if (noStateBox) {
+          if (!noStateDeclared) {
+            d += `  state ${NO_STATE_ID}\n`;
+            d += `  ${NO_STATE_ID} : (no state)\n`;
+            noStateDeclared = true;
+          }
+          d += `  ${NO_STATE_ID} --> ${id}\n`;
+        } else {
+          d += `  [*] --> ${id}\n`;
+        }
+      }
       // Mermaid's own native end-marker syntax — no custom SVG needed, unlike
       // the gateway diamonds, since stateDiagram-v2 already renders `--> [*]`
       // as a distinct ringed-circle "end" mark matching the start circle.
@@ -143,13 +166,39 @@ export const useMermaid = (workflow, options = {}) => {
           edgeLabel = `${labelTrim} [${conditionsTrim}]`;
         }
       } else {
+        // A real script(...) condition's raw text is the ENTIRE multi-line
+        // VBScript body (see pull-from-vault.ps1's TriggerAllowedByVBScript
+        // capture) — safe for a tooltip, but embedding it directly into a
+        // Mermaid label is not: Mermaid renders a label containing raw
+        // newlines as a separate box per fragment (confirmed live,
+        // 2026-08-25 — a script body shattered into ~10 disconnected boxes
+        // strung across the canvas, a direct consequence of the same-day
+        // fix that made isRenderable finally recognize script(...) at all).
+        // A short, fixed placeholder is used on Studio's own canvas
+        // instead; the real body is still shown via the guard-badge
+        // tooltip (CommandCenter.jsx) and the Transitions table, both of
+        // which read t.conditions directly rather than this label string.
+        //
+        // 'auto' gets the same treatment for a different reason: the raw
+        // grammar token (auto(4)/auto(5)) is accurate but reads as cryptic
+        // on a canvas someone is just glancing at, not editing — operator
+        // feedback, 2026-08-25. "criteria" says what's actually known (real,
+        // confirmed automatic, criteria-gated) without pretending to show a
+        // decoded condition. The full "confirmed live, specific condition
+        // not decoded" wording, plus the real raw criteria export when
+        // present, still shows in full on hover (describeCondition() and
+        // CommandCenter.jsx's tooltip are unchanged) — only this on-canvas
+        // label shortens.
+        const parsedRawSafe = parsedCondition.kind === 'script' ? 'script(...)'
+          : parsedCondition.kind === 'auto' ? 'criteria'
+          : parsedCondition.raw;
         if (t.label && t.label.trim()) {
           edgeLabel = t.label.trim();
           if (isRenderable(parsedCondition)) {
-            edgeLabel += ` [${parsedCondition.raw}]`;
+            edgeLabel += ` [${parsedRawSafe}]`;
           }
         } else if (isRenderable(parsedCondition)) {
-          edgeLabel = parsedCondition.raw;
+          edgeLabel = parsedRawSafe;
         }
       }
       const labelSuffix = edgeLabel ? ` : ${edgeLabel}` : '';
@@ -175,5 +224,5 @@ export const useMermaid = (workflow, options = {}) => {
     });
 
     return d;
-  }, [workflowKey, stateKey, transKey, themeKey, requireInitial, forTranslator]); // includes workflow identity to avoid cross-tab memo reuse
+  }, [workflowKey, stateKey, transKey, themeKey, requireInitial, forTranslator, noStateBox]); // includes workflow identity to avoid cross-tab memo reuse
 };

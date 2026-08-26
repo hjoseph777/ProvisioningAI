@@ -49,3 +49,47 @@ export function attachTravelingDot(pathEl, { color, duration = DOT_DEFAULTS.dura
   pathEl.parentNode.insertBefore(dot, pathEl.nextSibling);
   return dot;
 }
+
+// Static blue circle badge at an edge's own midpoint — the visual M-Files
+// Admin itself uses to mark a transition that carries real trigger/guard
+// logic underneath (confirmed against a real M-Files Admin screenshot), not
+// this project's own invention. Deliberately no number/text inside it: the
+// actual property/condition behind the transition is a separate, harder
+// decoding problem (opaque M-Files search-condition export, see
+// transitionGrammar.js's AUTO-grammar comment) that this badge does not
+// attempt — it only asserts "there is guard logic here," which is exactly
+// what conditions/TriggerMode already know for certain once populated
+// (either hand-authored in Studio or captured for real on import).
+export function attachGuardBadge(pathEl, { color = '#2563eb', radius = 5, fraction = 0.5 } = {}) {
+  if (!pathEl || !pathEl.ownerSVGElement || typeof pathEl.getTotalLength !== 'function') return null;
+  const len = pathEl.getTotalLength();
+  if (!len) return null;
+  const pt = pathEl.getPointAtLength(len * fraction);
+
+  const badge = document.createElementNS(SVG_NS, 'circle');
+  badge.setAttribute('cx', pt.x);
+  badge.setAttribute('cy', pt.y);
+  badge.setAttribute('r', radius);
+  badge.setAttribute('class', 'edge-guard-badge');
+  badge.style.fill = color;
+  pathEl.parentNode.insertBefore(badge, pathEl.nextSibling);
+  return badge;
+}
+
+// Re-anchors an already-attached guard badge to its path's CURRENT geometry.
+// attachGuardBadge only computes cx/cy once, at attach time — it never
+// re-runs on its own, so any later redrawEdge (node drag, bend drag) moves
+// the line out from under a badge that stays put. Call this right after
+// every redrawEdge on a path that might carry a badge; it's a safe no-op
+// when there isn't one. Relies on the badge being the path's immediate next
+// sibling, which attachGuardBadge's own insertBefore guarantees.
+export function repositionGuardBadge(pathEl, { fraction = 0.5 } = {}) {
+  if (!pathEl || typeof pathEl.getTotalLength !== 'function') return;
+  const badge = pathEl.nextElementSibling;
+  if (!badge || !badge.classList?.contains('edge-guard-badge')) return;
+  const len = pathEl.getTotalLength();
+  if (!len) return;
+  const pt = pathEl.getPointAtLength(len * fraction);
+  badge.setAttribute('cx', pt.x);
+  badge.setAttribute('cy', pt.y);
+}

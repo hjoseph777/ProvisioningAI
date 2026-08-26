@@ -1,14 +1,17 @@
 import { Fragment, useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { Users, Cog, Palette, Plus, Play, TriangleAlert, ChevronLeft, ChevronRight, Trash2, Undo2, Redo2, ArrowRightLeft } from 'lucide-react';
+import { Users, Cog, Palette, Plus, Play, TriangleAlert, ChevronLeft, ChevronRight, Trash2, Undo2, Redo2, Minus, Maximize2 } from 'lucide-react';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 import { useMermaid } from '../hooks/useMermaid';
 import { useExport } from '../hooks/useExport';
 import { computeGatewayGroups, gatewayLabel } from '../utils/gatewayGroups';
-import { parseCondition, describeCondition } from '../utils/transitionGrammar';
+import { parseCondition, describeCondition, isRenderable } from '../utils/transitionGrammar';
 import { CANVAS_THEMES, DEFAULT_CANVAS_THEME, gatewayStyleFor } from '../utils/canvasThemes';
-import { attachTravelingDot } from '../utils/edgeDotAnimation';
+import { attachTravelingDot, attachGuardBadge, repositionGuardBadge } from '../utils/edgeDotAnimation';
 import { SHAPE_STROKE_WIDTH, SHAPE_FILL_OPACITY, SHAPE_DROP_SHADOW, GATEWAY_ICON_SIZE } from '../utils/shapeDesignTokens';
+import { highlightJson } from '../utils/jsonHighlight';
+import SaveIndicator from './SaveIndicator';
+import HScrollBar from './HScrollBar';
 
 // Pre-rendered once at module load — reused lucide-react icon markup (not hand-drawn
 // SVG) for the two gateway diamond variants, in both color variants a theme can pick:
@@ -146,7 +149,7 @@ function buildEdgeMap(mermaidStr) {
 // consumes the layout model's already-resolved fromId/toId/transId instead
 // of recomputing them (this used to duplicate that nearest-neighbor pass
 // independently — now there's exactly one source of truth for "which edge is this").
-function addClicks(el, onNode, onNodeHover) {
+function addClicks(el, onNode, onNodeHover, wf) {
   const svg = el?.querySelector('svg'); if (!svg) return;
   svg.querySelectorAll('.node').forEach(n => {
     if (n.classList.contains('gw-node')) return; // gateway diamonds aren't states — nothing to select or hover-report
@@ -162,6 +165,29 @@ function addClicks(el, onNode, onNodeHover) {
     };
     n.onmouseleave = () => onNodeHover?.(null);
   });
+
+  // Native hover tooltip surfacing real, currently-invisible import metadata
+  // (alias/guid) — checked live, 2026-08-25: Studio's pull script captures
+  // only {guid, initial, name, alias} per state, nothing script/action-level
+  // (that lives in a different scanner entirely — WorkflowScanner.cs's native
+  // action capture, not this import path). alias is the real M-Files
+  // internal name (e.g. "WFS.Duplicate.Newdocument") and is never shown
+  // anywhere else in this UI, so it's genuine content, not invented filler.
+  // A plain <title> reuses the node's own existing hover area — no new
+  // hover-detection mechanism.
+  if (wf?.states?.length) {
+    const byName = new Map(wf.states.map(s => [s.name, s]));
+    svg.querySelectorAll('.node').forEach(n => {
+      if (n.classList.contains('gw-node')) return;
+      const lbl = n.querySelector('.nodeLabel,text,span')?.textContent?.trim() || '';
+      const st = byName.get(lbl);
+      if (!st?.alias && !st?.guid) return;
+      n.querySelectorAll(':scope > title').forEach(t => t.remove());
+      const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+      title.textContent = [st.alias, st.guid].filter(Boolean).join('\n');
+      n.appendChild(title);
+    });
+  }
 }
 
 // enableEdgeInteraction: click an arrow to select it (existing behavior,
@@ -174,7 +200,7 @@ function addClicks(el, onNode, onNodeHover) {
 // buildLayoutModel's geometric resolution, not a raw mermaid-text lookup.
 // Ghost overlays are rebuilt from model.edges (already resolved: fromId,
 // toId, transId) instead of a second independent nearest-neighbor pass.
-function enableEdgeInteraction(el, model, onEdge, updateBend, onEdgeHover, onEdgeContextMenu, onEdgeDoubleClick) {
+function enableEdgeInteraction(el, model, onEdge, updateBend, onEdgeHover, onEdgeContextMenu, onEdgeDoubleClick, wf) {
   const svg = el?.querySelector('svg'); if (!svg || !model) return;
   const { nodes, edges, finalPos, bendPos } = model;
   const DRAG_THRESHOLD = 5;
@@ -192,8 +218,32 @@ function enableEdgeInteraction(el, model, onEdge, updateBend, onEdgeHover, onEdg
     ghost.removeAttribute('marker-start');
     ghost.removeAttribute('marker-mid');
     ghost.style.cssText = 'stroke-width:32px;stroke:transparent;fill:none;cursor:pointer;pointer-events:stroke';
-    ghost.onmouseenter = () => onEdgeHover?.({ fromId, toId });
+    ghost.onmouseenter = () => onEdgeHover?.({ fromId, toId, transId });
     ghost.onmouseleave = () => onEdgeHover?.(null);
+
+    // Real tooltip content on the same hit-area that already drives
+    // hover-highlight — no separate hover-detection mechanism. Only
+    // transitions that actually got a guard badge (real, renderable
+    // automatic condition) get one; a manual transition has nothing real to
+    // show, and this deliberately doesn't invent placeholder text for it.
+    const t = transId && wf?.transitions?.find(x => x.id === transId);
+    if (t) {
+      const parsed = parseCondition(t.conditions);
+      if (isRenderable(parsed)) {
+        const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+        // rawCriteria (pull-from-vault.ps1's raw GetAsExportedSearchString
+        // export) is real, opaque, not human-decoded text — appended so two
+        // different auto(4) transitions no longer show an identical,
+        // indistinguishable tooltip when their real underlying criteria
+        // genuinely differ. describeCondition() itself stays a pure function
+        // of the parsed condition; this is a Studio-only addition on top of
+        // it, not a change to the shared grammar's own output.
+        let text = describeCondition(parsed);
+        if (parsed.kind === 'auto' && t.rawCriteria) text += `\nRaw criteria (not decoded): ${t.rawCriteria}`;
+        title.textContent = text;
+        ghost.appendChild(title);
+      }
+    }
     // Right-click / double-click open the same palette-driven editing surfaces
     // as a node's own (see enableNodeDrag below) — transId is already resolved
     // here via buildLayoutModel's geometric matching, so no separate name-based
@@ -222,6 +272,7 @@ function enableEdgeInteraction(el, model, onEdge, updateBend, onEdgeHover, onEdg
         growViewBoxToFit(svg, cur.x, cur.y);
         redrawEdge(path, fromId, toId, nodes, finalPos, bendPos[transId]);
         redrawEdge(ghost, fromId, toId, nodes, finalPos, bendPos[transId]);
+        repositionGuardBadge(path);
       };
       const onUp = () => {
         document.removeEventListener('mousemove', onMove);
@@ -283,9 +334,10 @@ const sanitizeStateId = name => (name || '').trim().replace(/\s+/g, '_').replace
 // end of the path and finding the nearest node — Mermaid can render path
 // elements in a different order than the input string, so this is the only
 // reliable way; same approach addClicks already uses for click hit-testing).
-// Also resolves each edge's store transition id (by from/to name, first-unused-
-// match — mirrors the existing index-based matching buildEdgeMap/highlightEdge
-// already rely on) so a dragged bend point can be persisted per-transition.
+// Also resolves each edge's store transition id (by from/to name; when 2+
+// real transitions share a state pair, disambiguated by rendered-label
+// matching, not declaration/paint order — see findTransId below) so a
+// dragged bend point can be persisted per-transition.
 function buildLayoutModel(svg, wf) {
   const idToStateId = {};
   wf.states.forEach(s => { idToStateId[sanitizeStateId(s.name)] = s.id; });
@@ -314,12 +366,57 @@ function buildLayoutModel(svg, wf) {
     return best;
   };
 
+  // Real rendered edge-label positions (Mermaid's own <g class="edgeLabel"
+  // transform="translate(x,y)">, same internal SVG coordinate space as a
+  // path's own d attribute/getPointAtLength — no screen conversion needed,
+  // unlike node matching's getBoundingClientRect). This is the disambiguator
+  // for parallel transitions below.
+  const labelGroups = [...svg.querySelectorAll('g.edgeLabel')].map(g => {
+    const m = /translate\(([-\d.]+)[,\s]+([-\d.]+)\)/.exec(g.getAttribute('transform') || '');
+    return m ? { x: parseFloat(m[1]), y: parseFloat(m[2]), text: (g.textContent || '').trim() } : null;
+  }).filter(Boolean);
+
+  // Mirrors useMermaid.js's own non-translator edge-label text exactly (the
+  // `else` branch: cosmetic label + optional bracketed condition, or the
+  // bare condition) — needed to recognize which candidate transition a given
+  // rendered label actually belongs to.
+  const expectedLabelText = t => {
+    const parsed = parseCondition(t.conditions);
+    const label = (t.label || '').trim();
+    if (label) return isRenderable(parsed) ? `${label} [${parsed.raw}]` : label;
+    return isRenderable(parsed) ? parsed.raw : '';
+  };
+
   const usedTransIds = new Set();
-  const findTransId = (fromId, toId) => {
-    const t = wf.transitions.find(t =>
+  // fromId/toId alone cannot disambiguate two real transitions sharing the
+  // same state pair — confirmed live, 2026-08-25 (a stale/static guard-badge
+  // tooltip on dense real data traced back to exactly this). DOM/paint order
+  // for such duplicate edges is not guaranteed to match wf.transitions'
+  // declaration order once Mermaid's internal dagre layout is involved (the
+  // same "paint order isn't guaranteed to match source order" fact already
+  // documented for the earlier hover-highlight fix — this is that same risk
+  // one level deeper, in transId assignment itself). When there's more than
+  // one real candidate for a pair, the nearest rendered edge label to THIS
+  // path's own midpoint — matched against each candidate's own expected
+  // label text — picks the right one regardless of paint order. Falls back
+  // to first-available only when label text can't disambiguate (e.g. two
+  // real transitions with identical conditions — content is indistinguishable
+  // either way, so it doesn't matter which one gets picked).
+  const findTransId = (fromId, toId, midX, midY) => {
+    const candidates = wf.transitions.filter(t =>
       !usedTransIds.has(t.id) && sanitizeStateId(t.from) === fromId && sanitizeStateId(t.to) === toId);
-    if (t) usedTransIds.add(t.id);
-    return t ? t.id : null;
+    if (!candidates.length) return null;
+    let chosen = candidates[0];
+    if (candidates.length > 1) {
+      let nearestText = null, bestD = Infinity;
+      labelGroups.forEach(lg => {
+        const d = (lg.x - midX) ** 2 + (lg.y - midY) ** 2;
+        if (d < bestD) { bestD = d; nearestText = lg.text; }
+      });
+      chosen = candidates.find(t => expectedLabelText(t) === nearestText) || candidates[0];
+    }
+    usedTransIds.add(chosen.id);
+    return chosen.id;
   };
 
   const transPaths = [...svg.querySelectorAll('path.transition')].filter(p => !p.getAttribute('marker-start'));
@@ -332,7 +429,8 @@ function buildLayoutModel(svg, wf) {
     const ss = toScreen(s), es = toScreen(e2);
     const fromId = nearest(ss.x, ss.y), toId = nearest(es.x, es.y);
     if (!fromId || !toId || fromId === toId) return;
-    edges.push({ path: p, fromId, toId, transId: findTransId(fromId, toId) });
+    const mid = p.getPointAtLength(len * 0.5);
+    edges.push({ path: p, fromId, toId, transId: findTransId(fromId, toId, mid.x, mid.y) });
   });
 
   const isMoved = id => {
@@ -528,6 +626,38 @@ function applyEdgeFlowAnimation(el, wf, layoutModel) {
   });
 }
 
+// Blue circle badge on every transition that genuinely carries trigger/
+// guard logic — the same visual real M-Files Admin uses (confirmed against
+// an operator-provided screenshot), driven by the exact same conditions
+// data that already decides dashed-vs-solid (isRenderable/parseCondition),
+// not a separate signal. Runs unconditionally (not gated on the flow-
+// animation toggle above) since this is informational, not a preference.
+// Only plain point-to-point transitions get one: a promoted gateway/hub's
+// legs have no single transId to look a condition up against (same
+// limitation applyEdgeFlowAnimation's own comment already documents for
+// this exact reason) — left uncovered rather than guessed at.
+// Dashed-vs-solid + the blue guard badge, same pass, same condition check —
+// Studio's canvas had NO dash rendering at all before this (confirmed live,
+// operator-provided screenshot: labels and the newly-added badge both
+// showed correctly, since both already read isRenderable/parseCondition,
+// but every line stayed solid because nothing here ever touched
+// strokeDasharray). redrawEdge (above) only ever set the path's geometry
+// (`d`), never its style — MFlowCanvas.jsx's equivalent already does this
+// via its own separate `style` field; Studio has no such field, so this
+// mirrors the same isRenderable/parseCondition check applyGuardBadges
+// already uses, not a new signal.
+function applyGuardBadges(el, wf, layoutModel) {
+  const svg = el?.querySelector('svg'); if (!svg || !wf || !layoutModel) return;
+  layoutModel.edges.forEach(({ path, transId }) => {
+    if (!transId) return;
+    const t = wf.transitions.find(x => x.id === transId);
+    if (!t) return;
+    const automatic = isRenderable(parseCondition(t.conditions));
+    path.style.strokeDasharray = automatic ? '7,5' : '';
+    if (automatic) attachGuardBadge(path);
+  });
+}
+
 // applyManualLayout: overrides any node's position with its stored x/y (a
 // previously-dragged state persists across every re-render/reload), and any
 // transition's path with its stored bend point — then redraws only the edges
@@ -561,10 +691,98 @@ function applyManualLayout(el, wf) {
 // click still opens the state inspector, unaffected); dropping persists the
 // new position via updatePosition. Must run AFTER addClicks so it can wrap
 // the click handler addClicks already attached and suppress it post-drag.
-function enableNodeDrag(el, model, updatePosition, onNodeContextMenu, onNodeDoubleClick) {
+// Also wires drag-to-connect handles (see wireConnectHandle below) — a
+// transition isn't its own addable object in M-Files, it's the act of
+// dragging a connection from one state to another, so this is the real
+// canvas equivalent of that, ported from MFlowCanvas.jsx's own connect-
+// handle mechanism (same visual language, same drag/hit-test/cleanup
+// shape) rather than reinvented; the palette's old "Add Transition" blank-
+// row button is retired in favor of this.
+function enableNodeDrag(el, model, updatePosition, onNodeContextMenu, onNodeDoubleClick, onConnect) {
   const svg = el?.querySelector('svg'); if (!svg || !model) return;
   const { nodes, edges, idToStateId, finalPos, bendPos } = model;
   const DRAG_THRESHOLD = 5;
+
+  // One connect-handle circle per side, a child of the node's own <g> so it
+  // moves for free whenever the node is repositioned (local coordinates,
+  // no separate tracking needed) — same technique MFlowCanvas.jsx uses.
+  const wireConnectHandle = (id, n, side) => {
+    const sign = side === 'left' ? -1 : 1;
+    const handle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    handle.setAttribute('cx', String(sign * n.hw));
+    handle.setAttribute('cy', '0');
+    // Wider than MFlowCanvas.jsx's own 5px — that one's visible on hover, so
+    // 5px was enough to aim at once seen; this one is permanently invisible
+    // (see the CSS comment), so the hit-zone needs more room to actually
+    // find blind.
+    handle.setAttribute('r', '10');
+    handle.setAttribute('class', `studio-connect-handle studio-connect-handle-${side}`);
+    n.el.appendChild(handle);
+    // A click that never became a drag would otherwise bubble as a real
+    // click and hit n.el's own onclick, toggling selection unexpectedly.
+    handle.onclick = e => e.stopPropagation();
+
+    handle.onmousedown = e => {
+      e.stopPropagation();
+      e.preventDefault();
+      const startPos = finalPos[id];
+      if (!startPos) return;
+
+      const dragLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      dragLine.setAttribute('class', 'studio-connect-dragline');
+      dragLine.setAttribute('x1', String(startPos.x + sign * n.hw));
+      dragLine.setAttribute('y1', String(startPos.y));
+      dragLine.setAttribute('x2', String(startPos.x + sign * n.hw));
+      dragLine.setAttribute('y2', String(startPos.y));
+      svg.appendChild(dragLine);
+
+      let targetId = null;
+      const clearHighlight = tid => {
+        const shape = nodes[tid]?.el.querySelector('rect, polygon');
+        if (shape) { shape.style.stroke = ''; shape.style.strokeWidth = ''; }
+      };
+      const setHighlight = tid => {
+        const shape = nodes[tid]?.el.querySelector('rect, polygon');
+        if (shape) { shape.style.stroke = 'var(--green)'; shape.style.strokeWidth = '3'; }
+      };
+      const onMove = ev => {
+        const ctm = svg.getScreenCTM();
+        const pt = svg.createSVGPoint();
+        pt.x = ev.clientX; pt.y = ev.clientY;
+        const svgPt = ctm ? pt.matrixTransform(ctm.inverse()) : pt;
+        dragLine.setAttribute('x2', String(svgPt.x));
+        dragLine.setAttribute('y2', String(svgPt.y));
+        // dragLine has pointer-events:none (see CSS) so it never shadows this.
+        const elUnder = document.elementFromPoint(ev.clientX, ev.clientY);
+        const targetEl = elUnder?.closest('.node');
+        // Gateway diamonds are a rendering-only derived shape, not a real
+        // state — never a valid drop target.
+        const validTargetEl = targetEl && !targetEl.classList.contains('gw-node') ? targetEl : null;
+        const targetLbl = validTargetEl?.querySelector('.nodeLabel,text,span')?.textContent?.trim() || '';
+        const newTargetId = targetLbl ? sanitizeStateId(targetLbl) : null;
+        const validNewTarget = (newTargetId && newTargetId !== id) ? newTargetId : null;
+        if (validNewTarget !== targetId) {
+          if (targetId) clearHighlight(targetId);
+          targetId = validNewTarget;
+          if (targetId) setHighlight(targetId);
+        }
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        dragLine.remove();
+        if (targetId) {
+          clearHighlight(targetId);
+          const fromStateId = idToStateId[id], toStateId = idToStateId[targetId];
+          if (fromStateId && toStateId) onConnect?.(fromStateId, toStateId);
+        }
+        // Dropped on empty canvas, the source node itself, or a gateway —
+        // clean up only, no dangling transition, no partial state.
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    };
+  };
 
   Object.entries(nodes).forEach(([id, n]) => {
     if (n.el.classList.contains('gw-node')) return; // gateway diamonds have no store position to drag
@@ -576,6 +794,8 @@ function enableNodeDrag(el, model, updatePosition, onNodeContextMenu, onNodeDoub
     // above (they're a rendering-only derived node, no store record to edit).
     n.el.oncontextmenu = e => { e.preventDefault(); e.stopPropagation(); onNodeContextMenu?.(stateId, e.clientX, e.clientY); };
     n.el.ondblclick = e => { e.stopPropagation(); onNodeDoubleClick?.(stateId, e.clientX, e.clientY); };
+    wireConnectHandle(id, n, 'right');
+    wireConnectHandle(id, n, 'left');
 
     n.el.onmousedown = (e) => {
       e.stopPropagation();
@@ -603,6 +823,7 @@ function enableNodeDrag(el, model, updatePosition, onNodeContextMenu, onNodeDoub
         edges.forEach(({ path, fromId, toId, transId }) => {
           if (fromId !== id && toId !== id) return;
           redrawEdge(path, fromId, toId, nodes, finalPos, transId ? bendPos[transId] : null);
+          repositionGuardBadge(path);
         });
       };
       const onUp = () => {
@@ -744,6 +965,11 @@ export default function CommandCenter() {
   const [mfExpandedVault,setMfExpandedVault]=useState(null); // guid or null
   const [mfVaultTreeWorkflows,setMfVaultTreeWorkflows]=useState({}); // {[guid]: 'loading' | {error} | [{id,name}]}
   const [syncMode,setSyncMode]=useState('export');
+  // Local Archive (SQLite ledger of previously pulled workflows) -- collapsed
+  // list, fetched on expand, not kept live-synced.
+  const [mfArchiveOpen,setMfArchiveOpen]=useState(false);
+  const [mfArchiveRows,setMfArchiveRows]=useState(null); // null = not fetched yet
+  const [mfArchiveLoading,setMfArchiveLoading]=useState(false);
   const [canScrollUp,setCanScrollUp]=useState(false);
   const [canScrollDown,setCanScrollDown]=useState(false);
   const [showEdgeSearch,setShowEdgeSearch]=useState(false);
@@ -776,7 +1002,13 @@ export default function CommandCenter() {
     });
   };
 
-  const wf=getActive(), mermaidStr=useMermaid(wf);
+  // noStateBox: renders a real "(no state)" box into the initial state,
+  // matching the real M-Files Admin workflow editor's own convention
+  // (confirmed against a live screenshot) instead of Mermaid's generic [*]
+  // circle marker. M-Files Flow's own useMermaid call sites are untouched —
+  // this option defaults false there, per the operator's explicit "leave
+  // MFlow as is" instruction.
+  const wf=getActive(), mermaidStr=useMermaid(wf,{noStateBox:true});
   // Moved up from just above the JSX return (still used there) so the
   // keyboard-shortcut effect below — which needs them in its deps array —
   // isn't reading them before they're declared in this component's render pass.
@@ -808,6 +1040,21 @@ export default function CommandCenter() {
   const filteredTrans=(wf?.transitions||[]).filter(t=>!transFilter||t.from.toLowerCase().includes(transFilter.toLowerCase())||t.to.toLowerCase().includes(transFilter.toLowerCase()));
   const {exportJSON}=useExport();
   const diagRef=useRef(null), rcRef=useRef(0), zoomRef=useRef(1), wrapRef=useRef(null);
+  // Bottom horizontal scrollbar adapter — HScrollBar (src/components/
+  // HScrollBar.jsx, shared with M-Files Flow and Process Docs) only deals in
+  // pixels; wrapRef's own native scrollLeft/scrollWidth/clientWidth ARE
+  // those pixels directly here (unlike the other two canvases, which pan via
+  // a hand-rolled transform or a library's own virtual viewport and have to
+  // approximate a "scrollLeft"), so this adapter needs no buffer/clamp math
+  // of its own — the browser already does it.
+  const hscrollRef=useRef(null);
+  const syncDiagramHScroll=()=>{
+    const el=wrapRef.current; if(!el||!hscrollRef.current) return;
+    hscrollRef.current.setMetrics({viewportWidth:el.clientWidth,contentWidth:el.scrollWidth,scrollLeft:el.scrollLeft});
+  };
+  const onDiagramHScrollChange=newScrollLeft=>{
+    if(wrapRef.current) wrapRef.current.scrollLeft=newScrollLeft; // fires a native 'scroll' event, picked up by the effect below
+  };
   // ── Palette-spawned state positioning ──────────────────────────────────
   // A brand-new, not-yet-connected state has no transitions to anchor it, so
   // Mermaid's own auto-layout can drop it anywhere on the canvas — confirmed
@@ -934,6 +1181,12 @@ export default function CommandCenter() {
             const vb = svgEl.viewBox.baseVal;
             const baseW = (vb && vb.width > 0) ? vb.width : 800;
             svgEl.dataset.baseWidth = baseW;
+            // baseHeight: same technique MFlowCanvas.jsx already uses for its own
+            // Fit button — read the natural (unscaled) viewBox height once, so the
+            // fit-to-view calculation below has a real height to constrain against
+            // (svgEl.style.height stays 'auto'/aspect-ratio-derived, never an
+            // explicit px value, so this can't be read back from the DOM later).
+            svgEl.dataset.baseHeight = (vb && vb.height > 0) ? vb.height : 600;
             svgEl.dataset.currentZoom = zoomRef.current;
             svgEl.style.width=`${baseW * zoomRef.current}px`;
             svgEl.style.height='auto';
@@ -999,7 +1252,7 @@ export default function CommandCenter() {
               });
             }
           }
-          addClicks(diagRef.current, name=>{setSel(name);setSelTrans(null);}, name=>setHoveredState(name));
+          addClicks(diagRef.current, name=>{setSel(name);setSelTrans(null);}, name=>setHoveredState(name), wf);
           enableEdgeInteraction(
             diagRef.current,
             layoutModel,
@@ -1022,10 +1275,11 @@ export default function CommandCenter() {
             (transId,x,y)=>updateTransitionBend(wf.id,transId,x,y),
             entry=>{
               if(!entry){setHoveredTransition(null);return;}
-              setHoveredTransition(entry.fromId.replace(/_/g,' '),entry.toId.replace(/_/g,' '));
+              setHoveredTransition(entry.fromId.replace(/_/g,' '),entry.toId.replace(/_/g,' '),entry.transId);
             },
             openEdgeContextMenu,
-            openEdgeRename
+            openEdgeRename,
+            wf
           );
           enableNodeDrag(diagRef.current,layoutModel,
             (stateId,x,y)=>{
@@ -1037,10 +1291,12 @@ export default function CommandCenter() {
               updateStatePosition(wf.id,stateId,x,y);
             },
             openNodeContextMenu,
-            openNodeRename);
+            openNodeRename,
+            onCanvasConnect);
           // Runs last, purely additive — never affects hit-testing/geometry the
           // steps above already finished building.
           if(animateFlow) applyEdgeFlowAnimation(diagRef.current,wf,layoutModel);
+          applyGuardBadges(diagRef.current,wf,layoutModel);
         }
       }catch{if(!dead&&diagRef.current)diagRef.current.innerHTML=`<div style="color:var(--red);font-size:11px;padding:16px">Diagram error</div>`;}
     })();
@@ -1051,16 +1307,27 @@ export default function CommandCenter() {
   // the diagram -> table direction is addClicks'/enableEdgeInteraction's
   // onNodeHover/onEdgeHover callbacks above).
   //
-  // Both lookups below were confirmed broken by direct DOM inspection
+  // The node lookup below was confirmed broken by direct DOM inspection
   // (2026-08-13 audit) and fixed against the real current output, not a new
   // guess: Mermaid's real node id is `state-<name>-<index>` (never the plain
-  // sanitized name), and real transition edges carry no LS-/LE- classes at
-  // all on this Mermaid version (confirmed: `class="edge-thickness-normal
-  // transition"` only) — there is no per-edge wrapper element either, so the
-  // edge lookup reuses the same fromId/toId -> rendered-index resolution
-  // (edgeMapRef, built from the raw mermaid text in declaration order) the
-  // already-working click-based highlightEdge relies on, and .highlight is
-  // added directly to the path element itself.
+  // sanitized name).
+  //
+  // The transition lookup used to reuse edgeMapRef's index (built from raw
+  // mermaid text in declaration order) applied positionally into a freshly
+  // DOM-queried path list — assuming the two lists line up 1:1 by position.
+  // They don't: useMermaid.js emits phantom `[*] --> state` lines that ARE
+  // rendered as real path.transition elements but are explicitly skipped
+  // when edgeMapRef is built, so every real transition's index drifts by
+  // however many phantom edges paint before it — and since Mermaid/dagre's
+  // paint order isn't guaranteed to match source order at all, the drift
+  // isn't even consistent. Confirmed live (2026-08-25): hovering solid vs.
+  // dashed transitions highlighted the wrong edge or nothing, not on any
+  // dash-based rule. Fixed by reusing lastLayoutModelRef's geometrically-
+  // resolved edges (same mechanism enableEdgeInteraction already trusts for
+  // click/drag) — each edge's real <path> comes back directly, no index
+  // translation needed. Only automatic/dashed transitions get the green
+  // highlight, by design (confirmed with the operator) — solid/manual
+  // transitions intentionally get no hover feedback here.
   useEffect(() => {
     if (!diagRef.current) return;
     diagRef.current.querySelectorAll('.highlight').forEach(el => el.classList.remove('highlight'));
@@ -1071,11 +1338,20 @@ export default function CommandCenter() {
       if (node) node.classList.add('highlight');
     }
     if (hoveredTransition?.from && hoveredTransition?.to && svg) {
-      const f = hoveredTransition.from.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'');
-      const t = hoveredTransition.to.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'');
-      const transPaths = [...svg.querySelectorAll('path.transition')].filter(p => !p.getAttribute('marker-start'));
-      const matchIdx = edgeMapRef.current.findIndex(e => e.fromId === f && e.toId === t);
-      if (matchIdx >= 0 && transPaths[matchIdx]) transPaths[matchIdx].classList.add('highlight');
+      const edges = lastLayoutModelRef.current?.edges || [];
+      // transId first: from/to alone collides for parallel transitions between
+      // the same two states (confirmed live, 2026-08-25 — e.g. one manual +
+      // one automatic transition sharing a state pair), where a plain from/to
+      // find() would always resolve to whichever one happens to come first.
+      let edge = hoveredTransition.transId != null
+        ? edges.find(e => e.transId === hoveredTransition.transId)
+        : null;
+      if (!edge) {
+        const f = hoveredTransition.from.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'');
+        const t = hoveredTransition.to.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'');
+        edge = edges.find(e => e.fromId === f && e.toId === t);
+      }
+      if (edge?.path?.style.strokeDasharray) edge.path.classList.add('highlight');
     }
   }, [hoveredState, hoveredTransition, mermaidStr, zoom]);
 
@@ -1129,6 +1405,22 @@ export default function CommandCenter() {
     return()=>el.removeEventListener('mousedown',onMouseDown);
   },[centerView]);
 
+  // Bottom scrollbar sync — a native 'scroll' listener covers every source
+  // of scrollLeft change at once (drag-pan above, handleFitToView's reset,
+  // the scrollbar's own drag/nudge/track-click), since all of them are real
+  // scrollLeft/scrollTop writes and the browser fires 'scroll' for any of
+  // them regardless of origin. A ResizeObserver separately covers viewport
+  // width changes with no scrollLeft change of their own (window resize,
+  // side panels opening/closing).
+  useEffect(()=>{
+    const el=wrapRef.current; if(!el) return;
+    el.addEventListener('scroll',syncDiagramHScroll);
+    const ro=typeof ResizeObserver!=='undefined'?new ResizeObserver(syncDiagramHScroll):null;
+    ro?.observe(el);
+    syncDiagramHScroll();
+    return()=>{ el.removeEventListener('scroll',syncDiagramHScroll); ro?.disconnect(); };
+  },[centerView]);
+
   // Apply zoom to the live SVG whenever zoom state changes
   useEffect(()=>{
     zoomRef.current=zoom;
@@ -1138,7 +1430,24 @@ export default function CommandCenter() {
       svgEl.dataset.currentZoom = zoom;
       svgEl.style.width=`${baseW * zoom}px`;
     }
+    syncDiagramHScroll(); // zoom changes scrollWidth without moving scrollLeft, so no native 'scroll' event fires on its own
   },[zoom]);
+
+  // Fit-to-view — same min-scale-against-container formula MFlowCanvas.jsx's
+  // own Fit button already uses (baseWidth/baseHeight vs available wrap size,
+  // 60px margin, capped at 100%), applied to Studio's zoom state instead of a
+  // CSS transform. Also recenters scroll, replacing the old "⟳ Recenter"
+  // button's second half of what it did.
+  const handleFitToView=()=>{
+    const svgEl=diagRef.current?.querySelector('svg'); if(!svgEl) return;
+    const baseWidth=parseFloat(svgEl.dataset.baseWidth)||800;
+    const baseHeight=parseFloat(svgEl.dataset.baseHeight)||600;
+    const wrapEl=wrapRef.current;
+    const availW=(wrapEl?.clientWidth||baseWidth)-60, availH=(wrapEl?.clientHeight||baseHeight)-60;
+    const fitScale=Math.min(1,availW/baseWidth,availH/baseHeight);
+    setZoom(fitScale); zoomRef.current=fitScale;
+    if(wrapEl){wrapEl.scrollTop=0;wrapEl.scrollLeft=0;}
+  };
 
   // Reset zoom to 100% when switching workflows
   useEffect(()=>{ setZoom(1); zoomRef.current=1; },[activeId]);
@@ -1346,12 +1655,39 @@ export default function CommandCenter() {
         workflowIds:ids,vaultGuid:guid,server:mfServer,authType:mfAuth,username:mfUser,password:mfPass
       });
       if(!res.ok) throw new Error(res.error||'Pull failed');
-      (res.workflows||[]).forEach(w=>useWorkflowStore.getState().seedImportedWorkflow(w,guid));
+      (res.workflows||[]).forEach(w=>{
+        useWorkflowStore.getState().seedImportedWorkflow(w,guid);
+        // Ledger entry alongside the tab -- best-effort, doesn't block the
+        // import itself (window.archive is Electron-only, absent in a plain
+        // browser dev session).
+        window.archive?.save({
+          name: w.name || 'Unnamed Workflow',
+          sourceVault: guid,
+          sourceWorkflowId: Number.isFinite(w.id) ? w.id : null,
+          stateCount: (w.states||[]).length,
+          transitionCount: (w.transitions||[]).length,
+          importedAt: w.importedAt || new Date().toISOString(),
+          data: w,
+        }).catch(()=>{});
+      });
       addMfLog(`Successfully pulled ${(res.workflows||[]).length} workflow(s) into tabs`,'ok');
     }catch(e){addMfLog(e.message,'error');}
     finally{
       setMfBusy(false);
       try{ window.mfiles.offProgress(); }catch(e){}
+    }
+  };
+
+  const handleToggleMfArchive=async()=>{
+    const opening=!mfArchiveOpen;
+    setMfArchiveOpen(opening);
+    if(opening&&mfArchiveRows===null){
+      setMfArchiveLoading(true);
+      try{
+        const res=await window.archive?.list();
+        setMfArchiveRows(res?.ok?res.rows:[]);
+      }catch(e){setMfArchiveRows([]);}
+      finally{setMfArchiveLoading(false);}
     }
   };
 
@@ -1434,10 +1770,26 @@ export default function CommandCenter() {
     return `${base} ${n}`;
   };
 
+  // Drag-to-connect drop — a transition isn't its own addable object in
+  // M-Files, it's the act of connecting two states, so this (not the old
+  // palette "Add Transition" button) is the real creation path now.
+  const onCanvasConnect=(fromStateId,toStateId)=>{
+    const fromSt=wf?.states.find(s=>s.id===fromStateId);
+    const toSt=wf?.states.find(s=>s.id===toStateId);
+    if(!fromSt||!toSt) return;
+    takeSnapshot();
+    addTransition(activeId,{from:fromSt.name,to:toSt.name});
+    setOpen(o=>({...o,trans:true}));
+  };
+
   // ── Editing palette / canvas context-menu / inline-rename handlers ──
   // Right-click a node -> open the menu, also selecting it (so the palette's
   // Delete Selected State / Labels field agree with whatever the menu is
-  // about to act on).
+  // about to act on). No-ops for anything that doesn't resolve to a real
+  // store record — useMermaid.js's "(no state)" pseudo-box has none.
+  // Explicit operator call: right-click menu is real-states-only; dragging/
+  // clicking the pseudo-box still works normally (canvas stays editable),
+  // just not this specific menu.
   const openNodeContextMenu=(stateId,x,y)=>{
     const st=wf?.states.find(s=>s.id===stateId);
     if(!st) return;
@@ -1484,6 +1836,7 @@ export default function CommandCenter() {
           {wf&&<div className="cc-wf-bar">
             <input className="cc-wf-name-input" value={wf.name} placeholder="Workflow name…"
               onChange={e=>renameWorkflow(activeId,e.target.value)}/>
+            <SaveIndicator watch={wf}/>
             <button className="xb" onClick={()=>{clearWorkflow(activeId);setSel('');}}>↺</button>
           </div>}
 
@@ -1598,10 +1951,13 @@ export default function CommandCenter() {
                     const fromId=t.from.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'');
                     const toId=t.to.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'');
                     const isSelected=selTrans!=null&&selTrans.fromId===fromId&&selTrans.toId===toId;
-                    const isHovered=hoveredTransition?.from===t.from&&hoveredTransition?.to===t.to;
+                    // transId-based when available (disambiguates parallel transitions
+                    // sharing the same from/to pair); falls back to from/to for a
+                    // canvas hover that somehow didn't resolve a transId.
+                    const isHovered=hoveredTransition?.transId!=null?hoveredTransition.transId===t.id:(hoveredTransition?.from===t.from&&hoveredTransition?.to===t.to);
                     const parsedCondition=parseCondition(t.conditions);
                     return(<tr key={t.id} className={`trans-row ${isSelected?'sel-row':''} ${isHovered?'hover-row':''}`.trim()}
-                      onMouseEnter={()=>setHoveredTransition(t.from, t.to)} onMouseLeave={()=>setHoveredTransition(null)}
+                      onMouseEnter={()=>setHoveredTransition(t.from, t.to, t.id)} onMouseLeave={()=>setHoveredTransition(null)}
                       onClick={()=>{
                         setSel('');
                         setSelTrans({fromId,toId});
@@ -1780,20 +2136,20 @@ export default function CommandCenter() {
               </button>
             </div>
           </div>
-          {centerView==='diagram'&&(
+          {centerView==='diagram'&&(<>
             <div className="diagram-wrap" ref={wrapRef} onClick={()=>{setSel('');setSelTrans(null);}}>
               {wf&&(
                 /* Collapsible editing palette — grew out of the old always-open
                    2-tile "object palette" rail (States: State / Initial State),
-                   now also covering Delete/Add Transition/Label edit/Undo/Redo.
-                   Still deliberately limited to what a Mermaid stateDiagram
-                   actually has: states + transitions. No Gateway/Pool/
-                   Sub-Process tiles — those are either auto-derived from
-                   transition fan-out (gateways) or don't exist in this model at
-                   all. "Add Transition" still doesn't place a transition
-                   directly on the canvas (no drag-to-connect here) — it creates
-                   a blank/from-prefilled row in the Transitions table below,
-                   same as the table's own pre-existing "+ Add" always has. */
+                   now also covering Delete State/Delete Transition/Label edit/
+                   Undo/Redo. No "Add Transition" tile — a transition isn't its
+                   own addable object in M-Files, it's the act of dragging a
+                   connection from one state to another (each state's own
+                   connect-handle, hover to reveal — see enableNodeDrag). Still
+                   deliberately limited to what a Mermaid stateDiagram actually
+                   has: states + transitions. No Gateway/Pool/Sub-Process tiles
+                   — those are either auto-derived from transition fan-out
+                   (gateways) or don't exist in this model at all. */
                 <div className={`studio-pal-shell ${paletteOpen?'open':'closed'}`} onClick={e=>e.stopPropagation()}>
                   {/* Toggle button itself now lives in the toolbar (cc-col-head,
                       next to the left/right panel-toggle buttons) — this shell
@@ -1836,15 +2192,12 @@ export default function CommandCenter() {
                       </div>
                       <div className="studio-pal-group">
                         <span className="studio-pal-rail-lbl">Transitions</span>
-                        <button type="button" className="studio-pal-tile"
-                          title={selStateObj?`Add a transition starting from "${selStateObj.name}"`:'Add a blank transition'}
-                          onClick={()=>{
-                            takeSnapshot();
-                            addTransition(activeId,selStateObj?{from:selStateObj.name}:{});
-                            setOpen(o=>({...o,trans:true}));
-                          }}>
-                          <ArrowRightLeft size={11} strokeWidth={2}/><span>Add Transition</span>
-                        </button>
+                        {/* No "Add Transition" button — a transition isn't
+                            its own addable object in M-Files, it's the act
+                            of dragging a connection from one state to
+                            another (the small handle on each state's edge,
+                            hover to reveal). Delete stays a button since
+                            there's no equivalent "undo the drag" gesture. */}
                         <button type="button" className="studio-pal-tile danger" disabled={!selTransRecord}
                           title={selTransRecord?`Delete "${selTransRecord.from} → ${selTransRecord.to}"`:'Select a transition on the canvas or in the table first'}
                           onClick={()=>{
@@ -1900,7 +2253,8 @@ export default function CommandCenter() {
                     {ctxMenu.kind==='node'?(<>
                       <div className="bpmn-context-menu-label">{st?`State: "${st.name}"`:'State'}</div>
                       <button type="button" disabled={!st} onClick={()=>{if(!st)return;setRenameBox({kind:'node',stateId:st.id,value:st.name,x:ctxMenu.x,y:ctxMenu.y});setCtxMenu(null);}}>✏️ Edit Label</button>
-                      <button type="button" disabled={!st} onClick={()=>{if(!st)return;takeSnapshot();addTransition(activeId,{from:st.name});setOpen(o=>({...o,trans:true}));setCtxMenu(null);}}>+ Add Transition</button>
+                      {/* No "Add Transition" here either — drag from the state's
+                          own connect-handle (hover to reveal) to another state instead. */}
                       <div className="bpmn-context-menu-divider"/>
                       <button type="button" disabled={!st} onClick={()=>{if(!st)return;takeSnapshot();const r=deleteState(activeId,st.id,{cascade:true});if(!r?.ok)alert(r?.error);setSel('');setCtxMenu(null);}}>✕ Delete</button>
                     </>):(<>
@@ -1938,10 +2292,27 @@ export default function CommandCenter() {
                   <div className="blueprint-sub">{wf ? 'Add at least one state and mark it as "Initial" to begin building the diagram.' : 'Create a new workflow, parse a Markdown file, or import from M-Files to get started.'}</div>
                 </div>
                 :<div key="diagram" ref={diagRef} style={{width:'100%'}} onClick={e=>e.stopPropagation()}/>}
-              {mermaidStr&&zoom!==1&&(
-                <div className="zoom-badge" onClick={e=>e.stopPropagation()}>
-                  <span>{Math.round(zoom*100)}%</span>
-                  <button title="Reset zoom (Ctrl+Scroll)" onClick={()=>{setZoom(1);zoomRef.current=1;}}>⟳</button>
+              {/* Zoom controls — reuses MFlowCanvas.jsx's own .mflow-view-controls
+                  class directly (not a re-skin — the literal same CSS), replacing
+                  the old floating percentage badge + separate "Recenter" pill.
+                  Two tools, one toolbar/zoom-control visual language, per the
+                  Studio/M-Files Flow alignment task. Permanent (not gated on
+                  zoom!==1) — matching M-Files Flow's own row, which is always
+                  visible rather than appearing only once zoomed. */}
+              {mermaidStr&&(
+                <div className="cc-zoom-controls-wrap" onClick={e=>e.stopPropagation()}>
+                  <div className="mflow-view-controls" role="group" aria-label="Canvas view controls">
+                    <button type="button" onClick={()=>{setZoom(z=>{const n=Math.max(0.2,+(z-0.15).toFixed(2));zoomRef.current=n;return n;});}} title="Zoom out">
+                      <Minus size={12}/>
+                    </button>
+                    <span className="cc-zoom-readout">{Math.round(zoom*100)}%</span>
+                    <button type="button" onClick={()=>{setZoom(z=>{const n=Math.min(3,+(z+0.15).toFixed(2));zoomRef.current=n;return n;});}} title="Zoom in">
+                      <Plus size={12}/>
+                    </button>
+                    <button type="button" onClick={handleFitToView} title="Fit diagram to view (also recenters)">
+                      <Maximize2 size={12}/> Fit
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -1953,12 +2324,16 @@ export default function CommandCenter() {
                   </>
                   :<button className="cc-edge-toggle" onClick={()=>setShowEdgeSearch(true)} title="Show search control">‹</button>}
               </div>
-
-              {mermaidStr&&zoom!==1&&<div className="cc-toolbar" onClick={e=>e.stopPropagation()}>
-                <button className="xb" onClick={()=>{setZoom(1);zoomRef.current=1;if(wrapRef.current){wrapRef.current.scrollTop=0;wrapRef.current.scrollLeft=0;}}} title="Reset Zoom">⟳ Recenter</button>
-              </div>}
             </div>
-          )}
+            {/* Bottom horizontal scrollbar — a real flex sibling of
+                .diagram-wrap inside .cc-center's flex column, shared with
+                M-Files Flow and Process Docs (src/components/HScrollBar.jsx)
+                for a visually/behaviorally identical bar. Studio's own pan is
+                native scroll (wrapRef.current.scrollLeft, see the drag-pan
+                effect above), the simplest of the three adapters — see the
+                scroll-sync effect and onDiagramHScrollChange below. */}
+            <HScrollBar ref={hscrollRef} onScrollLeftChange={onDiagramHScrollChange}/>
+          </>)}
           {centerView==='compare'&&(
             <div className="png-compare-wrap">
               <div className="png-compare-controls">
@@ -2004,12 +2379,13 @@ export default function CommandCenter() {
           )}
           {centerView==='json'&&(
             <div className="cc-col-body" style={{padding:'14px 16px'}}>
-              <pre style={{fontFamily:'var(--mono)',fontSize:10,lineHeight:1.7,color:'var(--text)',whiteSpace:'pre-wrap'}}>
-                {wf?JSON.stringify(wf,null,2):'No workflow loaded'}
-              </pre>
+              {wf
+                ?<pre className="cc-json-view" dangerouslySetInnerHTML={{__html:highlightJson(wf)}}/>
+                :<pre style={{fontFamily:'var(--mono)',fontSize:10,lineHeight:1.7,color:'var(--text)',whiteSpace:'pre-wrap'}}>No workflow loaded</pre>}
             </div>
           )}
           {centerView==='stats'&&(
+            <div className="stats-wrap">
             <div className="stats-grid">
               {[['States',wf?.states.length||0,'var(--a3)'],['Transitions',wf?.transitions.length||0,'var(--a3)'],['Users',users.length,'var(--green)'],['Properties',properties.length,'var(--green)'],['Rules',rules.length,'var(--gold)'],['Workflows',workflows.length,'var(--mid)']].map(([lbl,val,col])=>(
                 <div key={lbl} className="stat-card">
@@ -2017,6 +2393,7 @@ export default function CommandCenter() {
                   <div className="stat-lbl">{lbl}</div>
                 </div>
               ))}
+            </div>
             </div>
           )}
         </div>
@@ -2142,6 +2519,33 @@ export default function CommandCenter() {
                     ↑ Use the vault list in <strong style={{color:'var(--text)'}}>Connection settings</strong> above — expand a vault, then click a workflow to import it directly.
                   </div>
                 )}
+                {/* Same ghost-row end-marker convention Studio's own tables
+                    already use ("── N states · click + Add for more ──") —
+                    marks this as the deliberate end of the panel's content
+                    rather than leaving the remaining flex space read as
+                    unfinished. */}
+                <div className="deliver-end-marker">── end of panel ──</div>
+              </div>
+
+              {/* Local Archive — read-only browse of the SQLite ledger every
+                  pulled workflow gets written to (see electron/main.cjs's
+                  archive:save/archive:list). Fetched on expand, not kept
+                  live-synced — a minimal list is all this needs right now. */}
+              <div className="deliver-section">
+                <button onClick={handleToggleMfArchive} style={{width:'100%',display:'flex',alignItems:'center',justifyContent:'space-between',background:'none',border:'none',cursor:'pointer',padding:0}}>
+                  <span className="deliver-section-lbl" style={{margin:0}}>📚 Local Archive</span>
+                  <span style={{color:'var(--mid)',fontSize:9}}>{mfArchiveOpen?'▾':'▸'}</span>
+                </button>
+                {mfArchiveOpen&&<div style={{marginTop:6,maxHeight:180,overflowY:'auto',border:'1px solid var(--border)',borderRadius:4}}>
+                  {mfArchiveLoading&&<div style={{fontSize:8.5,color:'var(--mid)',padding:'6px'}}>Loading…</div>}
+                  {!mfArchiveLoading&&Array.isArray(mfArchiveRows)&&mfArchiveRows.length===0&&<div style={{fontSize:8.5,color:'var(--mid)',padding:'6px'}}>No saved workflows yet — pulling one from a vault adds it here.</div>}
+                  {!mfArchiveLoading&&Array.isArray(mfArchiveRows)&&mfArchiveRows.map(r=>(
+                    <div key={r.id} style={{padding:'5px 6px',borderBottom:'1px solid var(--border)',fontSize:9,fontFamily:'var(--mono)'}}>
+                      <div style={{color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.name}</div>
+                      <div style={{color:'var(--mid)',fontSize:8.5,marginTop:2}}>{new Date(r.importedAt).toLocaleString()} · {r.stateCount} states · {r.transitionCount} transitions</div>
+                    </div>
+                  ))}
+                </div>}
               </div>
 
               {mfLog.length>0&&<div className="mf-log mf-log-float" ref={mfLogRef} onScroll={()=>keepLogAtBottom(mfLogRef.current, mfLogFollowRef)}>{mfLog.map((l,i)=><div key={i} ref={i===mfLog.length-1?mfLogTailRef:null} className="ll"><span className="lt">{l.ts}</span><span className={l.t==='ok'?'lok':l.t==='warn'?'lwarn':l.t==='error'?'lerr':'linf'}>{l.msg}</span></div>)}</div>}

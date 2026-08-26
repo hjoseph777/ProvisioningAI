@@ -427,4 +427,89 @@ public sealed class TranslationPipelineTests
 
         Assert.Equal("after(3d)+priority(50)", t.OriginalLabel);
     }
+
+    // Regression coverage for the 2026-08-25 fix: `ID : Label` lines (real Mermaid's
+    // display-name declaration, always paired with a `state ID` line by useMermaid.js)
+    // used to hit MermaidParser's generic UNRECOGNIZED_LINE fallback — one warning per
+    // state, every import. Confirmed live against real archived Conformity data (126
+    // warnings -> 0) before this was added; these pin the behavior permanently so a
+    // future change can't silently reintroduce it.
+
+    [Fact]
+    public void StateLabelDeclaration_ProducesNoValidationIssues()
+    {
+        const string diagram = """
+            stateDiagram-v2
+                state StateA
+                StateA : StateA
+                state StateB
+                StateB : StateB
+                [*] --> StateA
+                StateA --> StateB
+            """;
+
+        var plan = TranslationPipeline.Translate(diagram, SidecarConfig.Empty);
+
+        Assert.Empty(plan.ValidationIssues);
+    }
+
+    [Fact]
+    public void StateLabelDeclaration_WithDistinctLabel_CarriesRealDisplayNameThroughToPlan()
+    {
+        // The ID a real accented/spaced name sanitizes to and the real label are
+        // genuinely different strings here — DisplayName must carry the real one,
+        // not just silently equal Name (which would mean the label was discarded).
+        const string diagram = """
+            stateDiagram-v2
+                state Contrle_doublon
+                Contrle_doublon : 3- Contrôle doublon
+                state StateB
+                StateB : StateB
+                [*] --> Contrle_doublon
+                Contrle_doublon --> StateB
+            """;
+
+        var plan = TranslationPipeline.Translate(diagram, SidecarConfig.Empty);
+        var state = plan.States.Single(s => s.Name == "Contrle_doublon");
+
+        Assert.Equal("3- Contrôle doublon", state.DisplayName);
+        Assert.NotEqual(state.Name, state.DisplayName);
+    }
+
+    [Fact]
+    public void State_WithoutLabelDeclaration_DisplayNameFallsBackToName()
+    {
+        // Not every valid diagram uses the `ID : Label` form — confirms the fallback
+        // itself, not just the case where a label happens to be present.
+        const string diagram = """
+            stateDiagram-v2
+                StateA --> StateB
+            """;
+
+        var plan = TranslationPipeline.Translate(diagram, SidecarConfig.Empty);
+        var state = plan.States.Single(s => s.Name == "StateA");
+
+        Assert.Equal("StateA", state.DisplayName);
+    }
+
+    [Fact]
+    public void GenuinelyUnsupportedMermaidConstruct_StillProducesUnrecognizedLineWarning()
+    {
+        // Proves the fix is a correction, not a broadened tolerance: a real Mermaid
+        // construct this parser has never supported (a `note` line) must still be
+        // flagged, in the same diagram where every `ID : Label` line is clean.
+        const string diagram = """
+            stateDiagram-v2
+                state StateA
+                StateA : StateA
+                state StateB
+                StateB : StateB
+                StateA --> StateB
+                note right of StateA: unsupported construct
+            """;
+
+        var plan = TranslationPipeline.Translate(diagram, SidecarConfig.Empty);
+
+        Assert.Contains(plan.ValidationIssues, i => i.Code == "UNRECOGNIZED_LINE" && i.Message.Contains("note right of StateA"));
+    }
 }

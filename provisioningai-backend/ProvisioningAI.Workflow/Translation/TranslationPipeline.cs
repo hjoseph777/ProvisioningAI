@@ -41,6 +41,7 @@ public static class TranslationPipeline
             states.Add(new PlannedState
             {
                 Name = name,
+                DisplayName = diagram.StateLabels.TryGetValue(name, out var label) ? label : name,
                 IsInitial = initialSet.Contains(name),
                 IsTerminal = !statesWithOutgoing.Contains(name),
                 WasCollapsedChoicePromotedToState = collapsed.PromotedChoiceStates.Contains(name),

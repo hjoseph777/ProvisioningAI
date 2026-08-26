@@ -49,6 +49,11 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13
 .cc-wf-bar{padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px;flex-shrink:0;background:var(--s2)}
 .cc-wf-name-input{flex:1;background:transparent;border:none;outline:none;font-family:var(--display);font-size:14px;font-weight:600;color:#fff}
 .cc-wf-name-input::placeholder{color:var(--dim)}
+/* SaveIndicator — shared by Studio's workflow-name bar and M-Files Flow's
+   status line. Fades in/out via opacity only (no layout shift), so its
+   presence never nudges neighboring controls. */
+.save-indicator{display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:9px;color:var(--green);opacity:0;transition:opacity .3s ease;pointer-events:none;flex-shrink:0}
+.save-indicator.visible{opacity:1}
 .cc-wf-tabs-wrap{display:flex;align-items:center;gap:4px;border-bottom:1px solid var(--border);background:var(--s2);padding:4px 6px 0;flex-shrink:0}
 .cc-wf-tabs{display:flex;overflow-x:auto;scroll-behavior:smooth;background:transparent;padding:0 2px;gap:2px;flex:1;min-width:0}
 .cc-wf-tab{font-size:9px;font-family:var(--mono);color:var(--mid);padding:4px 6px;cursor:pointer;border:1px solid transparent;border-bottom:none;border-radius:3px 3px 0 0;background:transparent;white-space:nowrap;transition:all .15s;position:relative;top:1px;display:flex;align-items:center;gap:4px}
@@ -159,6 +164,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13
 .parse-input::placeholder{color:var(--dim)}
 
 /* ── Deliver column ── */
+.deliver-end-marker{padding:14px 12px;font-size:8.5px;color:var(--dim);text-align:center;font-style:italic;letter-spacing:.5px}
 .deliver-section{padding:12px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:8px}
 .deliver-section-lbl{font-size:8.5px;color:var(--mid);letter-spacing:1px;text-transform:uppercase}
 .deliver-row{display:flex;align-items:center;gap:8px;border-radius:4px;padding:2px 4px;margin:0 -4px;transition:background .15s}
@@ -195,12 +201,42 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13
 .q-staged-lbl{font-size:8.5px;color:var(--a3);letter-spacing:1px;text-transform:uppercase;margin:4px 0 2px;text-align:center}
 
 /* ── Center column ── */
-.diagram-wrap{flex:1;overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:18px;position:relative;cursor:grab;
+/* Still overflow-x:auto, NOT hidden -- confirmed live (headless Chromium)
+   that overflow-x:hidden silently stops the 'scroll' event from firing on
+   programmatic scrollLeft writes at all, even though scrollLeft itself
+   still updates -- the exact mechanism syncDiagramHScroll's listener
+   depends on, so hidden would have left the shared scrollbar's thumb
+   permanently stale. The native scrollbar is hidden purely visually
+   instead (.diagram-wrap::-webkit-scrollbar below + scrollbar-width:none),
+   which doesn't touch scroll-event behavior at all -- wrapRef.current.
+   scrollLeft (drag-pan, handleFitToView, the new scrollbar) all still work
+   exactly as before. overflow-y is untouched either way -- horizontal-only
+   change. Webkit-only selector deliberately, not a blanket scrollbar-width:
+   none -- this app only ever actually runs in Chromium (Electron), and a
+   blanket rule would also hide the vertical scrollbar in Firefox, which
+   this element was never asked to touch. */
+/* Real M-Files Admin shows no inline text on a transition line at all —
+   just the line itself, dashed/solid, plus a guard badge; the actual
+   condition/label content only ever shows on hover (confirmed against a
+   real Admin screenshot, 2026-08-25). Mermaid's own edge-label text is kept
+   generating in useMermaid.js, not removed at the source, because
+   buildLayoutModel's parallel-transition disambiguation (CommandCenter.jsx)
+   reads the real rendered label text/position to tell two transitions
+   sharing a state pair apart — hiding it visually here, rather than never
+   generating it, keeps that mechanism working while matching the real
+   M-Files convention on screen. Scoped to both canvases that share
+   useMermaid.js (Studio's .diagram-wrap, M-Files Flow's own
+   .mflow-diagram-wrap below) — Process Docs is unrelated (React Flow, not
+   Mermaid) and untouched. */
+.diagram-wrap .edgeLabel,.mflow-diagram-wrap .edgeLabel{display:none}
+
+.diagram-wrap{flex:1;overflow-y:auto;overflow-x:auto;display:flex;align-items:flex-start;justify-content:center;padding:18px;position:relative;cursor:grab;
   background-color:#F8FAFC;
   background-image:radial-gradient(#CBD5E1 1.5px, transparent 1.5px);
   background-size:24px 24px;
   background-position:0 0;
 }
+.diagram-wrap::-webkit-scrollbar:horizontal{display:none}
 .diagram-wrap.panning{cursor:grabbing}
 /* ── Compare PNG — real Conformity workflow screenshots beside the live diagram.
    Fixed upload order, no drag-to-reorder (the original's broken feature, cut
@@ -270,12 +306,22 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13
 .studio-rename-box{z-index:200}
 .studio-rename-box input{background:var(--s2);border:1px solid var(--a2);border-radius:5px;padding:5px 8px;color:var(--text);font-family:var(--mono);font-size:11px;box-shadow:0 8px 20px rgba(0,0,0,.4);min-width:160px}
 .studio-rename-box input:focus{outline:none}
-.zoom-badge{position:absolute;bottom:14px;right:16px;background:rgba(5,14,26,.88);border:1px solid var(--border);border-radius:6px;padding:4px 10px 4px 12px;font-size:9px;font-family:var(--mono);color:var(--mid);display:flex;align-items:center;gap:7px;backdrop-filter:blur(6px);pointer-events:auto;z-index:20;user-select:none}
-.zoom-badge span{color:var(--a3);letter-spacing:.5px}
-.zoom-badge button{background:none;border:none;cursor:pointer;color:var(--mid);font-size:13px;padding:0;line-height:1;transition:color .15s}
-.zoom-badge button:hover{color:var(--text)}
-.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:16px}
-.stat-card{background:var(--s2);border:1px solid var(--border);border-radius:7px;padding:14px;text-align:center;transition:all .15s;cursor:default}
+/* Zoom controls — positions the shared .mflow-view-controls chip (see
+   MFlowCanvas.jsx / App.jsx's own .mflow-view-controls rule, reused as-is,
+   not redefined here) over Studio's canvas. Replaces the old .zoom-badge/
+   .cc-toolbar pair — same Studio/M-Files Flow toolbar-language alignment
+   this was written for. */
+.cc-zoom-controls-wrap{position:absolute;bottom:14px;right:16px;z-index:20}
+.cc-zoom-readout{font-family:var(--mono);font-size:9px;color:var(--mid);padding:0 4px;letter-spacing:.3px;user-select:none}
+/* .stats-grid on its own only ever took its natural (short) content height —
+   the large empty area beneath it in the review's screenshot was .cc-center's
+   own unfilled flex space below that short content, not the grid itself
+   being too tall. .stats-wrap centers the grid within whatever space is
+   actually available (both axes) instead of leaving it pinned to the top
+   with the rest of the panel reading as unfinished. */
+.stats-wrap{flex:1;display:flex;align-items:center;justify-content:center;overflow:auto;padding:16px}
+.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:520px;width:100%}
+.stat-card{background:var(--s2);border:1px solid var(--border);border-radius:7px;padding:18px 14px;text-align:center;transition:all .15s;cursor:default}
 .stat-card:hover{border-color:var(--bdr2);background:var(--s3)}
 .stat-card:hover .stat-lbl{color:var(--text)}
 .stat-val{font-family:var(--display);font-size:24px;font-weight:700;color:var(--a3);line-height:1;margin-bottom:3px}
@@ -343,13 +389,16 @@ path.transition.highlight {
    it inflates the whole triangle disproportionately. Leave stroke-width alone. */
 .diagram-wrap svg marker path { fill: #1E293B !important; }
 
-/* Floating Toolbar */
-.cc-toolbar {
-  position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
-  display: flex; gap: 8px; padding: 6px 12px; border-radius: 8px;
-  background: rgba(10,24,40, 0.85); backdrop-filter: blur(10px);
-  border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.5); z-index: 100;
-}
+/* Drag-to-connect hit-zone — a small invisible circle at each state's
+   edge, dragged to another state to create a transition. Deliberately NO
+   visible marker at all, unlike MFlowCanvas.jsx's own hover-revealed
+   .mflow-connect-handle — the real M-Files Admin workflow editor shows no
+   handle graphic either, confirmed against it directly, so this stays
+   permanently invisible (opacity:0, never revealed on hover) rather than
+   matching that precedent. cursor:crosshair on hover is the only cue. */
+.studio-connect-handle{opacity:0;fill:var(--a3);stroke:none;cursor:crosshair}
+.studio-connect-dragline{stroke:var(--a3);stroke-width:2px;stroke-dasharray:5 4;pointer-events:none}
+
 .cc-edge-search{
   position:absolute;right:0;top:50%;transform:translateY(-50%);z-index:110;
   display:flex;align-items:center;gap:6px;padding:6px 6px 6px 8px;
@@ -405,6 +454,8 @@ path.transition.highlight {
 .cmd-item-icon { width: 24px; text-align: center; font-size: 14px; opacity: 0.7; }
 .cmd-item-text { flex: 1; font-size: 13px; }
 .cmd-item-type { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.6; }
+.cmd-footer{display:flex;gap:16px;padding:9px 16px;border-top:1px solid var(--border);background:var(--s2);font-family:var(--mono);font-size:10px;color:var(--mid)}
+.cmd-footer kbd{display:inline-block;min-width:16px;padding:1px 5px;margin-right:3px;border-radius:3px;border:1px solid var(--border);background:var(--s3);color:var(--mid2);font-family:var(--mono);font-size:9.5px;text-align:center;line-height:1.5}
 
 /* ── App Shell: section nav, vault chip, empty states ── */
 .cc-content-area{flex:1;display:flex;overflow:hidden;min-height:0}
@@ -413,10 +464,21 @@ path.transition.highlight {
 .cc-section-tab:hover{color:var(--text);border-color:var(--border)}
 .cc-section-tab.active{color:var(--a3);background:rgba(74,159,255,.1);border-color:rgba(74,159,255,.3)}
 .cc-section-tab.gated:not(.active):not(:hover){color:var(--dim)}
+.cc-section-tab-lock{opacity:.55;flex-shrink:0}
 .cc-vault-chip{display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:5px;border:1px solid var(--border);background:var(--s2);font-size:9.5px;font-family:var(--mono);color:var(--mid);flex-shrink:0;cursor:default}
 .cc-vault-chip.connected{color:var(--text)}
 .cc-cmdk-hint{font-size:9px;font-family:var(--mono);padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--mid);cursor:pointer;transition:all .15s;flex-shrink:0}
 .cc-cmdk-hint:hover{border-color:var(--a2);color:var(--a3)}
+/* Reset — previously reused the same generic .xb style as every other small
+   button in the app, sitting flush against the passive ⌘K/vault-status
+   chips with nothing distinguishing "destructive action" from "informational
+   indicator." A thin divider + extra spacing separates it from that cluster;
+   the red hover state (not a permanent red at rest, which would read as a
+   constant warning rather than a real one) signals "this one is different"
+   only when it's actually about to be clicked. */
+.cc-reset-btn{font-size:9.5px;font-family:var(--mono);padding:4px 10px;border-radius:3px;border:1px solid var(--border);background:transparent;color:var(--mid2);cursor:pointer;transition:all .15s;white-space:nowrap;flex-shrink:0;margin-left:12px;position:relative}
+.cc-reset-btn::before{content:'';position:absolute;left:-8px;top:50%;transform:translateY(-50%);width:1px;height:16px;background:var(--border)}
+.cc-reset-btn:hover{border-color:var(--red);color:var(--red);background:rgba(255,61,90,.08)}
 .cc-source-row{display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--border);background:var(--s2);flex-shrink:0}
 .cc-source-lbl{font-size:8.5px;color:var(--mid);letter-spacing:1px;text-transform:uppercase;flex-shrink:0}
 .cc-source-tabs{display:flex;gap:2px}
@@ -439,6 +501,26 @@ path.transition.highlight {
 .mflow-split-right{height:100%;overflow:hidden;display:flex;flex-direction:column}
 .mflow-split-handle{width:5px;background:var(--border);cursor:col-resize;transition:background .15s;position:relative}
 .mflow-split-handle:hover,.mflow-split-handle[data-resize-handle-active]{background:var(--a3)}
+/* Expand/collapse chevron pair — flush with the very top of the divider
+   (top:2px), at the same height as the shared ContextTabStrip row just
+   above the split, per direct operator correction against a real
+   47-state workflow (the earlier top:29/36px placement sat inside each
+   panel's own per-panel toolbar row instead, one row too low). Non-
+   intrusive by default (small, muted, semi-transparent), a distinct cyan
+   glow on hover/focus so it still reads as interactive against the thin
+   5px handle it sits on. Deliberately its own accent (rgba(0,212,255,...))
+   rather than this app's --a3 blue, so a toggle this consequential (hides
+   an entire panel) doesn't blend in with ordinary selection/hover blue
+   used everywhere else on the canvas. */
+.mflow-split-toggle-group{position:absolute;top:2px;left:50%;transform:translateX(-50%);
+  display:flex;gap:3px;z-index:2}
+.mflow-split-toggle{width:16px;height:16px;
+  display:flex;align-items:center;justify-content:center;border-radius:4px;cursor:pointer;
+  background:rgba(148,163,184,.14);border:1px solid rgba(148,163,184,.25);color:var(--mid);
+  transition:background .15s,border-color .15s,box-shadow .15s,color .15s}
+.mflow-split-toggle:hover,.mflow-split-toggle:focus-visible{
+  background:rgba(0,212,255,.12);border-color:rgba(0,212,255,.5);color:#00D4FF;
+  box-shadow:0 0 8px rgba(0,212,255,.5);outline:none}
 .mflow-shell{height:100%;display:flex;min-height:0;overflow:hidden;background:var(--bg)}
 .mflow-canvas-area{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
 .mflow-status-line{flex-shrink:0;padding:8px 16px;font-size:10px;font-family:var(--mono);color:var(--mid);border-bottom:1px solid var(--border);background:var(--s1);display:flex;align-items:center;justify-content:space-between;gap:8px}
@@ -469,13 +551,35 @@ path.transition.highlight {
 .mflow-comment-del:hover{color:var(--red)}
 .mflow-comment textarea{width:100%;min-height:32px;border:none;background:transparent;color:var(--text);font-family:var(--mono);font-size:9px;padding:5px;resize:vertical;outline:none;line-height:1.4}
 .mflow-comment textarea::placeholder{color:inherit;opacity:0.5}
-/* overflow:hidden, not auto — pan is now a free transform on the SVG
-   itself (see MFlowCanvas.jsx's panRef), not native scroll, so there's no
-   scrollable overflow to expose a scrollbar for; hidden just clips
-   whatever pans outside the viewport, matching a free-pan canvas. */
+/* overflow:hidden, not auto — pan is a free transform on the SVG itself
+   (see MFlowCanvas.jsx's panRef), not native scroll, so there's no native
+   scrollable overflow for the browser to attach its own scrollbar to;
+   hidden just clips whatever pans outside the viewport. The shared .hscroll
+   bar (below, in the "Shared bottom horizontal scrollbar" block) is a
+   separate control wired to that same transform (applyPanX), not a native
+   scrollbar on this element. */
 .mflow-diagram{flex:1;overflow:hidden;display:flex;align-items:flex-start;justify-content:center;padding:18px;cursor:grab;
   background-color:#F8FAFC;background-image:radial-gradient(#CBD5E1 1.5px, transparent 1.5px);background-size:24px 24px;background-position:0 0}
 .mflow-diagram.panning{cursor:grabbing}
+/* Shared bottom horizontal scrollbar (src/components/HScrollBar.jsx) — one
+   set of classes used identically by Studio, M-Files Flow, and Process
+   Docs, each wiring the same onScrollLeftChange/setMetrics contract onto
+   its own pan mechanism (see HScrollBar.jsx's own header comment). A real
+   flex-shrink:0 bar in each canvas's own layout, not an overlay. Thin
+   track + a distinct pill thumb, plus small nudge arrows on both ends.
+   Sits on the same var(--s1) tone as each canvas's own top toolbar row,
+   for visual continuity underneath a lighter canvas background above it. */
+.hscroll{flex-shrink:0;height:18px;display:flex;align-items:center;gap:4px;padding:0 6px;
+  background:var(--s1);border-top:1px solid var(--border)}
+.hscroll-arrow{flex-shrink:0;width:14px;height:14px;display:flex;align-items:center;justify-content:center;
+  background:transparent;border:none;border-radius:3px;color:var(--mid);cursor:pointer;padding:0;transition:all .15s}
+.hscroll-arrow:hover{color:var(--text);background:var(--s3)}
+.hscroll-track{flex:1;position:relative;height:6px;background:var(--s3);border:1px solid var(--border);
+  border-radius:3px;cursor:pointer}
+.hscroll-thumb{position:absolute;top:-1px;left:0;height:6px;min-width:20px;border-radius:3px;
+  background:var(--mid2,var(--mid));cursor:grab;transition:background .15s}
+.hscroll-thumb:hover{background:var(--a3)}
+.hscroll-thumb:active{cursor:grabbing;background:var(--a3)}
 /* flex-shrink:0 is load-bearing, not cosmetic: .mflow-diagram is a flex
    container, and JS (growViewBoxToFit/the zoom effect/Fit) sets this svg's
    style.width directly to control zoom. Without flex-shrink:0, the CSS
@@ -558,7 +662,11 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
 /* ── LiveTranslationView (right-hand split-screen panel) ── */
 .mflow-ltv{height:100%;display:flex;flex-direction:column;background:var(--s1);overflow:hidden}
 .mflow-ltv-head{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border);background:var(--s2)}
-.mflow-ltv-tabs{display:flex;gap:2px}
+/* margin-left clears the divider chevron pair (.mflow-split-toggle-group,
+   top:2px, centered on the divider right at this panel's left edge) --
+   without it "M-Files Diagram" (the first tab label) sits directly under
+   the chevron buttons. */
+.mflow-ltv-tabs{display:flex;gap:2px;margin-left:26px}
 .mflow-ltv-tabs button{font-size:9.5px;font-family:var(--mono);padding:4px 9px;border-radius:3px;border:1px solid transparent;background:transparent;color:var(--mid);cursor:pointer;transition:all .15s}
 .mflow-ltv-tabs button:hover{color:var(--text);border-color:var(--border)}
 .mflow-ltv-tabs button.on{color:var(--a3);background:rgba(74,159,255,.1);border-color:rgba(74,159,255,.3)}
@@ -566,13 +674,52 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
 .mflow-ltv-spin{animation:mflow-ltv-spin .9s linear infinite}
 @keyframes mflow-ltv-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
 .mflow-ltv-error{flex-shrink:0;padding:7px 10px;font-size:10px;color:var(--red);background:rgba(255,61,90,.08);border-bottom:1px solid var(--border)}
-.mflow-ltv-body{flex:1;overflow-y:auto;padding:12px}
+/* display:flex;flex-direction:column -- needed so .mflow-ltv-diagram-tab's
+   own flex:1 (below) resolves against a real flex-computed height rather
+   than a percentage through a scrolling ancestor, which Chromium doesn't
+   reliably honor here (confirmed live: min-height:100% alone left a real
+   gap below a short diagram on a tall real window, not just this app's
+   earlier small dev-server test window). Flattened/JSON/Validation's own
+   single-child content is unaffected -- a flex item with no explicit flex
+   property still sizes to its own content, same as plain block flow did. */
+.mflow-ltv-body{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column}
 .mflow-ltv-empty{font-size:10px;color:var(--dim);font-style:italic;padding:6px 2px}
 .mflow-ltv-empty-root{padding:20px;text-align:center}
 .mflow-ltv-fade{animation:mflow-ltv-fadein .2s ease}
 @keyframes mflow-ltv-fadein{from{opacity:0}to{opacity:1}}
+/* .mflow-ltv-view-wrap -- the version-keyed fade wrapper (LiveTranslationView.
+   jsx, shared by all 4 tabs) sits BETWEEN .mflow-ltv-body and .mflow-ltv-
+   diagram-tab and is plain block by default, which was silently breaking
+   the flex chain .mflow-ltv-body's own flex:1 comment above assumed was
+   direct -- confirmed live via a real DOM parent-chain dump (Playwright),
+   not guessed: .mflow-ltv-diagram-tab's flex:1 was correctly applied but
+   had no effect because its actual parent wasn't a flex container. Only
+   applied to that wrapper when the diagram tab is active (see the JSX's
+   own conditional className), so Flattened/JSON/Validation never receive
+   it and stay exactly as they were. */
+.mflow-ltv-view-wrap{flex:1;min-height:0;display:flex;flex-direction:column}
 
-.mflow-ltv-diagram-wrap{overflow:auto}
+/* .mflow-ltv-diagram-tab -- flex column wrapping the diagram wrap + its
+   bottom scrollbar together, a real flex:1 child of .mflow-ltv-body (now
+   also a flex column, see its own comment) so the dotted-grid canvas
+   background runs all the way down (the left canvas's equivalent already
+   fills its column the same way) instead of leaving a gap below a short
+   diagram. min-height:0 overrides the flex default (min-height:auto),
+   which would otherwise refuse to shrink below its own content height and
+   defeat the scrolling this whole adapter depends on. */
+.mflow-ltv-diagram-tab{flex:1;min-height:0;display:flex;flex-direction:column}
+.mflow-ltv-diagram-wrap{flex:1;min-height:0;overflow:auto;position:relative;cursor:grab;
+  background-color:#F8FAFC;
+  background-image:radial-gradient(#CBD5E1 1.5px, transparent 1.5px);
+  background-size:24px 24px;
+  background-position:0 0;
+}
+.mflow-ltv-diagram-wrap.panning{cursor:grabbing}
+/* Positions the shared .mflow-view-controls chip over this panel's own
+   canvas — same floating-bottom-right pattern .cc-zoom-controls-wrap
+   already established for Studio, applied here since this panel isn't
+   .mflow-canvas-header (M-Files Flow's own top-bar placement doesn't apply). */
+.mflow-ltv-zoom-controls-wrap{position:absolute;bottom:14px;right:16px;z-index:20}
 .mflow-ltv-flat-label{font-size:9px;font-weight:600;color:var(--mid);letter-spacing:.6px;text-transform:uppercase;margin:14px 0 6px}
 .mflow-ltv-flat-label:first-child{margin-top:0}
 .mflow-ltv-states{display:flex;flex-wrap:wrap;gap:8px}
@@ -595,10 +742,27 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
 .mflow-ltv-trans-rule{margin-top:5px;font-size:8.5px;color:var(--dim)}
 
 .mflow-ltv-json{font-size:9.5px;line-height:1.5;color:var(--text);white-space:pre-wrap;word-break:break-word;margin:0}
+/* Studio's own JSON tab — same layout properties its old inline-styled
+   <pre> had (font-family var(--mono) comes from body's own default, so
+   isn't repeated here), now a real class so it can share the token-color
+   rules below with M-Files Flow's .mflow-ltv-json instead of each view
+   needing its own copy. */
+.cc-json-view{font-size:10px;line-height:1.7;color:var(--text);white-space:pre-wrap;margin:0}
+/* JSON syntax-highlight tokens — shared by .cc-json-view (Studio) and
+   .mflow-ltv-json (M-Files Flow), see utils/jsonHighlight.js. Colors reuse
+   tokens already established elsewhere rather than a new palette: --a3 is
+   the diagram's own accent/selection blue, --green/--gold/--purple already
+   distinguish States/Users/Properties/Rules on the Stats view. */
+.jk{color:var(--a3)}          /* object keys */
+.js{color:var(--green)}       /* string values */
+.jn{color:var(--gold)}        /* numbers */
+.jb{color:#A78BFA}            /* booleans — matches the AI-mode accent purple used elsewhere */
+.jz{color:var(--dim)}         /* null */
 
 .mflow-ltv-status-banner{display:flex;align-items:center;gap:6px;font-size:10px;font-weight:600;padding:7px 10px;border-radius:4px;margin-bottom:10px}
 .mflow-ltv-status-banner.ok{color:var(--green);background:rgba(0,200,112,.1)}
 .mflow-ltv-status-banner.error{color:var(--red);background:rgba(255,61,90,.1)}
+.mflow-ltv-validation-summary{font-size:9.5px;color:var(--mid2);padding:0 2px 10px;font-family:var(--mono)}
 .mflow-ltv-issue{display:flex;gap:7px;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--s2);margin-bottom:6px}
 .mflow-ltv-issue-error{border-color:rgba(255,61,90,.35)}
 .mflow-ltv-issue-error svg{color:var(--red);flex-shrink:0}
@@ -1317,6 +1481,10 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
 
 /* ── Animated flow dots (both canvases) ── */
 .edge-flow-dot{filter:drop-shadow(0 0 3px currentColor)}
+/* ── Guard/trigger badge (both Mermaid canvases; the M-Files Diagram tab's
+   own copy is inline JSX, not this shared class) — white ring so the solid
+   blue circle pops against any line color/theme it sits on. ── */
+.edge-guard-badge{stroke:#fff;stroke-width:1.5px}
 /* React Flow's attribution link is left visible deliberately — hiding it
    (proOptions.hideAttribution) is its own separate Pro feature, not something
    this task scoped or authorized alongside the gateway-shapes/auto-layout use. */

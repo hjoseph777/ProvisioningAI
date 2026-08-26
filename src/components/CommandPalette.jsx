@@ -122,8 +122,8 @@ export default function CommandPalette() {
         <div className="cmd-results">
           {filtered.length === 0 && <div style={{padding: '20px', color: 'var(--dim)', textAlign: 'center'}}>No results found</div>}
           {filtered.map((item, i) => (
-            <div 
-              key={i} 
+            <div
+              key={i}
               className={`cmd-item ${i === selectedIndex ? 'selected' : ''}`}
               onMouseEnter={() => setSelectedIndex(i)}
               onClick={() => { item.action(); setCmdPaletteOpen(false); }}
@@ -133,6 +133,15 @@ export default function CommandPalette() {
               <span className="cmd-item-type">{item.type}</span>
             </div>
           ))}
+        </div>
+        {/* Keyboard-hint footer — the one piece every command palette this
+            is implicitly compared to (Linear, Raycast, VS Code) already has.
+            Pure documentation of behavior that already exists above (arrow
+            nav, Enter-to-select, Escape-to-close) — no new interaction. */}
+        <div className="cmd-footer">
+          <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
+          <span><kbd>↵</kbd> select</span>
+          <span><kbd>esc</kbd> close</span>
         </div>
       </div>
     </div>

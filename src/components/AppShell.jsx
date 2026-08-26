@@ -36,7 +36,7 @@ export default function AppShell({ children }) {
         <button className="cc-cmdk-hint" onClick={() => setCmdPaletteOpen(true)} title="Open command palette">⌘K</button>
         <VaultStatusChip />
         {(isStudio || isMflow) && (
-          <button className="xb" onClick={() => studioResetHandler?.()} title="Reset all workflows">↺ Reset</button>
+          <button className="cc-reset-btn" onClick={() => studioResetHandler?.()} title="Reset all workflows">↺ Reset</button>
         )}
       </div>
 

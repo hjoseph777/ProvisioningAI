@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 
 const makeId = () => Math.random().toString(36).slice(2, 9);
 
@@ -83,16 +83,44 @@ const shellDefaults = {
 // "not workflow data" reason. resetAll() still works exactly as before:
 // set(fresh()) overwrites the persisted copy too, since persist wraps every
 // set() call, not just the initial one.
+// Chromium commits localStorage to disk asynchronously (a short delay, not
+// per-write) -- confirmed live, real Electron app: a change made shortly
+// before a hard kill/crash can be lost on relaunch. Worse, on Windows,
+// Electron's app 'before-quit'/'will-quit'/'quit' do NOT fire when the app
+// is closed by an OS-initiated shutdown/restart/logout (documented Electron
+// behavior, confirmed directly here by sending the real WM_QUERYENDSESSION/
+// WM_ENDSESSION messages to a live window and observing before-quit's
+// flushStorageData() never engage) -- so a quit-hook flush, alone, protects
+// an in-app Quit but not a real reboot. Instead of depending on any
+// quit/shutdown hook, nudge a flush shortly after every actual write, so the
+// vulnerable window shrinks to ~500ms after the last edit rather than
+// spanning the whole session. No-ops cleanly in a plain browser dev session
+// (window.storage is Electron-only, per this app's existing window.archive/
+// window.file pattern).
+const baseJSONStorage = createJSONStorage(() => localStorage);
+const flushingStorage = {
+  ...baseJSONStorage,
+  setItem: (name, value) => {
+    baseJSONStorage.setItem(name, value);
+    window.storage?.flushSoon?.();
+  },
+};
+
 export const useWorkflowStore = create(persist((set, get) => ({
   ...fresh(),
   ...shellDefaults,
   setHoveredState: (name) => set({ hoveredState: name }),
-  setHoveredTransition: (from, to) => {
+  // transId disambiguates parallel transitions sharing the same from/to state
+  // pair (a real, confirmed shape in this data — e.g. one manual + one
+  // automatic transition between the same two states) — from/to alone can't
+  // tell them apart, so callers that know the real transition id should pass
+  // it as the third arg.
+  setHoveredTransition: (from, to, transId) => {
     if (!from || !to) {
       set({ hoveredTransition: null });
       return;
     }
-    set({ hoveredTransition: { from, to } });
+    set({ hoveredTransition: { from, to, transId: transId || null } });
   },
   setCmdPaletteOpen: (open) => set({ cmdPaletteOpen: open }),
 
@@ -460,6 +488,12 @@ export const useWorkflowStore = create(persist((set, get) => ({
       sourceVaultGuid: sourceVaultGuid || null,
       states:      (mfData.states || []).map(s => ({ id: makeId(), ...s })),
       transitions: (mfData.transitions || []).map(t => ({ id: makeId(), ...t })),
+      // M-Files Admin's own real, human-authored canvas layout for this
+      // workflow (per-state {GUID,x,y}), when pull-from-vault.ps1 found one —
+      // absent/null for a workflow nobody's arranged in the Designer yet, and
+      // always absent for a hand-drawn workflow (mfData is undefined there,
+      // so this stays undefined too, same as every other M-Files-only field).
+      layoutData:  mfData.layoutData || null,
       groups:      [],
       theme:       'neutral',
       comments:    [],
@@ -484,4 +518,5 @@ export const useWorkflowStore = create(persist((set, get) => ({
 }), {
   name: 'provisioningai-workflow-store',
   partialize: s => ({ workflows: s.workflows, activeId: s.activeId, users: s.users, properties: s.properties, rules: s.rules }),
+  storage: flushingStorage,
 }));

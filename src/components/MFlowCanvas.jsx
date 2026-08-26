@@ -1,12 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
-import { Plus, Minus, Maximize2, Lock, Unlock, List, X, Diamond, GitMerge } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Plus, Minus, Maximize2, Lock, Unlock, List, X, Diamond, GitMerge, ChevronLeft, ChevronRight } from 'lucide-react';
 import { PanelGroup, Panel, PanelResizeHandle } from 'react-resizable-panels';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 import { useMermaid } from '../hooks/useMermaid';
 import { gatewayStyleFor, DEFAULT_CANVAS_THEME } from '../utils/canvasThemes';
 import { SHAPE_STROKE_WIDTH, SHAPE_FILL_OPACITY, SHAPE_DROP_SHADOW } from '../utils/shapeDesignTokens';
+import { attachGuardBadge, repositionGuardBadge } from '../utils/edgeDotAnimation';
+import { parseCondition, describeCondition, isRenderable } from '../utils/transitionGrammar';
 import MFlowPalette from './mflow/MFlowPalette';
 import LiveTranslationView from './mflow/LiveTranslationView';
+import SaveIndicator from './SaveIndicator';
+import HScrollBar from './HScrollBar';
 
 // ── M-Files Flow ─────────────────────────────────────────────────
 // Clean-slate rebuild, NOT an edit to CommandCenter.jsx (Studio). Shares
@@ -257,6 +261,41 @@ export default function MFlowCanvas() {
   const zoomRef = useRef(1); // read inside the drag handler, for growViewBoxToFit's CSS-width math
   zoomRef.current = zoom;
 
+  // Divider expand/collapse chevron — react-resizable-panels' own imperative
+  // collapse()/expand() API (confirmed against its real source: both are
+  // no-ops unless the target Panel has `collapsible` set, so both Panels
+  // below carry it). Binary toggle: split ⇄ left-panel-full-width, tracked
+  // via the right Panel's own onCollapse/onExpand so the chevron's direction
+  // stays correct even if the split is also collapsed by dragging the
+  // handle past its threshold, not just via this button.
+  const leftPanelRef = useRef(null);
+  const rightPanelRef = useRef(null);
+  const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
+  // Bidirectional: two arrows, not one flipping chevron — expandLeft makes
+  // the LEFT canvas full width (collapsing right, restoring left first if
+  // it was the one collapsed); expandRight is the mirror. Clicking the
+  // arrow for whichever side is ALREADY full-width restores the split.
+  const expandLeft = () => {
+    const left = leftPanelRef.current, right = rightPanelRef.current; if (!left || !right) return;
+    if (rightPanelCollapsed) { right.expand(); return; } // already left-full -> restore split
+    if (leftPanelCollapsed) left.expand(); // was right-full -> bring left back first
+    right.collapse();
+  };
+  const expandRight = () => {
+    const left = leftPanelRef.current, right = rightPanelRef.current; if (!left || !right) return;
+    if (leftPanelCollapsed) { left.expand(); return; } // already right-full -> restore split
+    if (rightPanelCollapsed) right.expand(); // was left-full -> bring right back first
+    left.collapse();
+  };
+
+  // Bottom horizontal scrollbar — drives the SAME panRef/transform the
+  // existing drag-to-pan already uses (see panRef's own comment for why
+  // this canvas uses a free CSS transform instead of native scroll), so
+  // scrollbar-drag, thumb nudge, and mouse-drag panning all stay in sync
+  // through one source of truth instead of fighting each other.
+  const hscrollRef = useRef(null);
+
   // ── Live translation (split-screen right panel) ──────────────────────
   // Confirmed cadence (recover.md, 2026-08-19 investigation): permanent
   // split-screen, continuous debounce (~300ms after edits stop) triggers a
@@ -274,6 +313,49 @@ export default function MFlowCanvas() {
   // canvas highlights its block in LiveTranslationView's Flattened view.
   // One-directional only (left canvas -> right panel), as scoped.
   const [hoveredStateKey, setHoveredStateKey] = useState(null);
+
+  // Real M-Files Admin layout, when this workflow was imported with one —
+  // resolved here (GUID -> name, keyed against plan.States[].Name the same
+  // way hoveredStateKey already is) rather than inside LiveTranslationView,
+  // so that component never needs to know about GUIDs at all. null when the
+  // workflow has no layoutData (hand-drawn, or never arranged in M-Files
+  // Admin) — LiveTranslationView falls back to its existing computed layout
+  // in that case, unchanged.
+  const realLayoutByName = useMemo(() => {
+    if (!wf?.layoutData?.stateLayout?.length) return null;
+    // Keyed on the SANITIZED name, not the raw one — confirmed live this
+    // matters: a real state named "RTE-NewDocument_+_CLEAN_PO" translates to
+    // plan.States[].Name "RTENewDocument__CLEAN_PO" (hyphen and plus
+    // stripped), so a raw-name join silently missed it and, under the
+    // all-or-nothing rule, fell back to computed layout for the WHOLE
+    // diagram over one mismatched state. Exact same transform useMermaid.js
+    // already applies when building a state's Mermaid ID (`name.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'')`,
+    // src/hooks/useMermaid.js) — duplicated here rather than importing from
+    // that shared file, since it's a two-line regex, not shared state.
+    const sanitize = n => (n || '').trim().replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
+    const guidToName = new Map(wf.states.filter(s => s.guid).map(s => [s.guid, sanitize(s.name)]));
+    const map = new Map();
+    wf.layoutData.stateLayout.forEach(e => {
+      const name = guidToName.get(e.GUID);
+      if (name) map.set(name, { x: parseFloat(e.x), y: parseFloat(e.y) });
+    });
+    return map.size > 0 ? map : null;
+  }, [wf?.layoutData, wf?.states]);
+
+  // Switching the active workflow tab must invalidate immediately, not wait
+  // for the 300ms debounce below to get around to it — confirmed live,
+  // 2026-08-25: without this, a still-in-flight translate call for the
+  // PREVIOUS workflow can resolve during that 300ms gap (its seq guard
+  // hasn't been bumped yet, since the debounced effect hasn't fired its
+  // setTimeout callback), briefly painting the new tab with the old
+  // workflow's Validation counts before the real fresh call lands. Keyed on
+  // activeId specifically (not translatorMermaidStr, which the effect below
+  // already reacts to) so this fires exactly once per switch, synchronously.
+  useEffect(() => {
+    translateSeqRef.current++;
+    setTranslationPlan(null);
+    setTranslationError(null);
+  }, [activeId]);
 
   useEffect(() => {
     if (!translatorMermaidStr) {
@@ -339,6 +421,60 @@ export default function MFlowCanvas() {
   const updateToolbarPosRef = useRef(updateToolbarPos);
   updateToolbarPosRef.current = updateToolbarPos;
 
+  // Bottom horizontal scrollbar — HScrollBar (src/components/HScrollBar.jsx,
+  // shared with Studio and Process Docs for a visually/behaviorally
+  // identical bar) only ever deals in pixels; this adapter maps its
+  // 0..maxScroll scrollLeft to/from panRef.x. Content is free-panned (no
+  // hard clamp on panRef, by design, see panRef's own comment), so there's
+  // no natural "100% scrolled" bound to anchor a real scrollbar to — one
+  // viewport-width of buffer on top of the real content-vs-viewport deficit
+  // keeps the thumb usable and lets it reach the same free-pan range the
+  // canvas already allows. virtualContentWidth (not the raw content width)
+  // is what's actually passed to setMetrics, so HScrollBar's own internal
+  // `maxScroll = contentWidth - viewportWidth` reproduces this exact number
+  // instead of silently double-counting (or dropping) the buffer.
+  const scrollMetrics = () => {
+    const viewportWidth = diagRef.current?.clientWidth || 1;
+    const svgEl = diagRef.current?.querySelector('svg');
+    const baseWidth = svgEl ? parseFloat(svgEl.dataset.baseWidth) : 0;
+    const contentWidth = baseWidth ? baseWidth * zoom : viewportWidth;
+    const buffer = viewportWidth;
+    const maxScroll = Math.max(contentWidth - viewportWidth, 0) + buffer;
+    return { viewportWidth, virtualContentWidth: viewportWidth + maxScroll, maxScroll, centerScroll: maxScroll / 2 };
+  };
+
+  // Imperative, not React state — matches updateToolbarPos's own reasoning:
+  // called from inside the drag-pan effect's onMove handler on every
+  // mousemove, where a setState-driven re-render would be wasteful.
+  const updateScrollbarPos = () => {
+    const { viewportWidth, virtualContentWidth, centerScroll } = scrollMetrics();
+    hscrollRef.current?.setMetrics({ viewportWidth, contentWidth: virtualContentWidth, scrollLeft: centerScroll - panRef.current.x });
+  };
+  const updateScrollbarPosRef = useRef(updateScrollbarPos);
+  updateScrollbarPosRef.current = updateScrollbarPos;
+
+  // Applies a panRef.x change consistently to the SVG transform + both
+  // dependent overlays (scrollbar thumb, floating multi-select toolbar) —
+  // the same three-step sequence the existing drag-pan handler already
+  // repeats inline; factored out once here since the scrollbar's own entry
+  // points (thumb drag, track click, nudge arrows — all inside HScrollBar
+  // now) would otherwise triplicate it.
+  const applyPanX = newX => {
+    panRef.current = { ...panRef.current, x: newX };
+    const svgEl = diagRef.current?.querySelector('svg');
+    if (svgEl) svgEl.style.transform = `translate3d(${panRef.current.x}px, ${panRef.current.y}px, 0)`;
+    updateScrollbarPosRef.current();
+    updateToolbarPosRef.current();
+  };
+
+  // HScrollBar's one callback prop — it hands back a plain 0..maxScroll
+  // scrollLeft number on drag/nudge/track-click; this is the only place
+  // that number gets translated back into panRef.x.
+  const onHScrollChange = newScrollLeft => {
+    const { centerScroll } = scrollMetrics();
+    applyPanX(centerScroll - newScrollLeft);
+  };
+
   useEffect(() => { setSelected(new Set()); setContextMenu(null); }, [activeId]);
 
   // Selection change and every fresh diagram render both move/hide the
@@ -389,6 +525,7 @@ export default function MFlowCanvas() {
     const baseWidth = parseFloat(svgEl.dataset.baseWidth); if (!baseWidth) return;
     svgEl.style.width = `${baseWidth * zoom}px`;
     updateToolbarPosRef.current(); // zoom rescales node screen positions
+    updateScrollbarPosRef.current(); // zoom rescales content width, changes the thumb ratio
   }, [zoom, mermaidStr]);
 
   // Click-drag empty canvas to pan — free transform on the SVG itself, NOT
@@ -422,6 +559,7 @@ export default function MFlowCanvas() {
         panRef.current = { x: startPan.x + dx, y: startPan.y + dy };
         svgEl.style.transform = `translate3d(${panRef.current.x}px, ${panRef.current.y}px, 0)`;
         updateToolbarPosRef.current(); // keep the toolbar glued to the selection while panning
+        updateScrollbarPosRef.current(); // keep the bottom scrollbar's thumb in sync with free-drag panning
       };
       const onUp = () => {
         document.removeEventListener('mousemove', onMove);
@@ -449,6 +587,19 @@ export default function MFlowCanvas() {
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
   }, [mermaidStr]);
+
+  // Keeps the bottom scrollbar's thumb size/position correct whenever the
+  // canvas's own width changes for a reason that isn't zoom or pan — a
+  // PanelGroup drag-resize, the new divider chevron collapsing/expanding a
+  // panel, or the window itself resizing. Window resize alone wouldn't catch
+  // the panel-drag case (react-resizable-panels doesn't fire one), hence a
+  // ResizeObserver on the canvas element directly rather than a resize listener.
+  useEffect(() => {
+    const el = diagRef.current; if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => updateScrollbarPosRef.current());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // Selection highlight — the diagram itself gave no visual feedback for
   // selection before (only the status-line text changed), which read as
@@ -497,6 +648,7 @@ export default function MFlowCanvas() {
         // in place so a re-render (e.g. from renaming a state) doesn't
         // silently snap the view back to center.
         svgEl.style.transform = `translate3d(${panRef.current.x}px, ${panRef.current.y}px, 0)`;
+        updateScrollbarPosRef.current();
 
         // Arrowhead markers were resolving to fill:white (Mermaid's scoped
         // theme CSS not landing the color this render pipeline expects) —
@@ -649,7 +801,22 @@ export default function MFlowCanvas() {
               hitPath.appendChild(titleEl);
             }
             const nameStr = trans.label ? `Name: ${trans.label}` : 'Unnamed Transition';
-            const condStr = trans.conditions ? `\nCondition: ${trans.conditions}` : '';
+            // Same rich description as Studio's guard-badge tooltip
+            // (CommandCenter.jsx), not a raw dump of trans.conditions —
+            // this canvas had its own separate, cruder tooltip logic that
+            // never went through transitionGrammar.js at all, so a script(...)
+            // condition here was showing its entire raw multi-line VBScript
+            // body under "Condition:" instead of a real description, and an
+            // auto(4)/auto(5) one showed the bare grammar token with no
+            // explanation. Unified so both canvases describe the same real
+            // data the same way — a generic fix, not tied to any one
+            // workflow's specific transitions.
+            const parsedCond = parseCondition(trans.conditions);
+            let condStr = '';
+            if (isRenderable(parsedCond)) {
+              condStr = `\n${describeCondition(parsedCond)}`;
+              if (parsedCond.kind === 'auto' && trans.rawCriteria) condStr += `\nRaw criteria (not decoded): ${trans.rawCriteria}`;
+            }
             const typeStr = `\nType: ${trans.style === 'automatic' ? 'Automatic' : 'Manual'}`;
             titleEl.textContent = `${trans.from} → ${trans.to}\n${nameStr}${typeStr}${condStr}`;
 
@@ -823,8 +990,24 @@ export default function MFlowCanvas() {
             const mid = path.getPointAtLength(len / 2);
             labelEl.setAttribute('transform', `translate(${mid.x}, ${mid.y})`);
           }
+
+          repositionGuardBadge(path);
         };
         edgeList.forEach(redrawEdge);
+
+        // Blue circle badge on every transition genuinely marked automatic
+        // (tObj.style — this canvas's own dashed/solid source of truth,
+        // see redrawEdge above; NOT Studio's separate conditions-grammar
+        // check, which is the wrong field here) — the same visual real
+        // M-Files Admin uses for a transition carrying trigger/guard logic.
+        // A ONE-TIME pass after the initial full redraw, not inside
+        // redrawEdge itself, which also runs per-mousemove during a drag
+        // (line ~1245) and would otherwise stack a fresh badge on every frame.
+        edgeList.forEach(({ path, transId }) => {
+          if (!transId) return;
+          const tObj = wf?.transitions.find(x => x.id === transId);
+          if (tObj?.style === 'automatic') attachGuardBadge(path);
+        });
 
         // ── Edge reconnect — grab either endpoint of a real transition and
         // drop it on a different state to reattach that end, without
@@ -1372,7 +1555,9 @@ export default function MFlowCanvas() {
 
   return (
     <PanelGroup direction="horizontal" className="mflow-split">
-    <Panel defaultSize={55} minSize={30} className="mflow-split-left">
+    <Panel ref={leftPanelRef} defaultSize={55} minSize={30} collapsible collapsedSize={0}
+      onCollapse={() => setLeftPanelCollapsed(true)} onExpand={() => setLeftPanelCollapsed(false)}
+      className="mflow-split-left">
     <div className="mflow-shell">
       <MFlowPalette
         pinned={palettePinned}
@@ -1416,6 +1601,7 @@ export default function MFlowCanvas() {
               : selected.size === 1 ? `State — ${[...selected][0]}`
               : wf ? wf.name : 'No workflow'}
           </span>
+          {wf&&<SaveIndicator watch={wf}/>}
           <div className="mflow-view-controls" role="group" aria-label="Canvas view controls">
             <button type="button" onClick={e => { e.stopPropagation(); setZoom(z => Math.max(0.2, +(z - 0.15).toFixed(2))); }} title="Zoom out">
               <Minus size={12}/>
@@ -1432,6 +1618,7 @@ export default function MFlowCanvas() {
               setZoom(Math.min(1, availW / baseWidth, availH / baseHeight));
               panRef.current = { x: 0, y: 0 };
               svgEl.style.transform = 'translate3d(0px, 0px, 0)';
+              updateScrollbarPosRef.current();
             }} title="Fit diagram to view (also recenters pan)">
               <Maximize2 size={12}/> Fit
             </button>
@@ -1474,6 +1661,17 @@ export default function MFlowCanvas() {
                 </div>
               )}
             </div>}
+
+        {/* Bottom horizontal scrollbar — a real flex sibling of
+            .mflow-diagram-wrap (both live inside .mflow-canvas-area's flex
+            column), not an overlay, so it always sits at the true bottom
+            edge of the canvas rather than floating over content. Shared
+            component (src/components/HScrollBar.jsx, also used by Studio and
+            Process Docs) driven by the same panRef/transform the mouse-drag
+            pan already uses (see onHScrollChange/applyPanX), so this,
+            drag-panning, and the toolbar's zoom stay in sync through one
+            source of truth instead of three. */}
+        {wf && <HScrollBar ref={hscrollRef} onScrollLeftChange={onHScrollChange}/>}
 
         {wf && (wf.comments || []).map(c => {
           const contrast = getContrastColor(c.color);
@@ -1857,9 +2055,41 @@ export default function MFlowCanvas() {
       )}
     </div>
     </Panel>
-    <PanelResizeHandle className="mflow-split-handle"/>
-    <Panel defaultSize={45} minSize={20} className="mflow-split-right">
-      <LiveTranslationView plan={translationPlan} error={translationError} isTranslating={isTranslating} version={translationVersion} hoveredStateKey={hoveredStateKey} onForceRefresh={() => setRefreshTrigger(v => v + 1)}/>
+    <PanelResizeHandle className="mflow-split-handle">
+      {/* Expand/collapse toggle — top of the divider, BELOW the status-line/
+          toolbar row's own border line (not overlapping it — see
+          .mflow-split-toggle-group's top offset). Two arrows, not one
+          flipping chevron: left arrow makes the left canvas full-width,
+          right arrow makes the right panel full-width, either direction
+          from split or from the other side's expanded state. Muted by
+          default, cyan glow on hover/focus (see CSS — deliberately not this
+          app's own --a3 blue, a distinct accent so a toggle this
+          consequential doesn't blend into ordinary selection-highlight blue). */}
+      <div className="mflow-split-toggle-group">
+        <button type="button" className="mflow-split-toggle"
+          title={leftPanelCollapsed ? 'Restore split view' : 'Expand left canvas to full width'}
+          onClick={e => { e.stopPropagation(); expandLeft(); }}
+          // react-resizable-panels detects a drag via a `pointerdown` listener
+          // on document.body doing its own coordinate hit-test against the
+          // handle's bounding box (confirmed in its source, not DOM ancestry) —
+          // stopping bubbling here, on the same event type, is what actually
+          // keeps a click on this button from also starting a resize-drag,
+          // not onMouseDown (a different event the library never listens for).
+          onPointerDown={e => e.stopPropagation()}>
+          <ChevronLeft size={11}/>
+        </button>
+        <button type="button" className="mflow-split-toggle"
+          title={rightPanelCollapsed ? 'Restore split view' : 'Expand right panel to full width'}
+          onClick={e => { e.stopPropagation(); expandRight(); }}
+          onPointerDown={e => e.stopPropagation()}>
+          <ChevronRight size={11}/>
+        </button>
+      </div>
+    </PanelResizeHandle>
+    <Panel ref={rightPanelRef} defaultSize={45} minSize={20} collapsible collapsedSize={0}
+      onCollapse={() => setRightPanelCollapsed(true)} onExpand={() => setRightPanelCollapsed(false)}
+      className="mflow-split-right">
+      <LiveTranslationView plan={translationPlan} error={translationError} isTranslating={isTranslating} version={translationVersion} hoveredStateKey={hoveredStateKey} realLayoutByName={realLayoutByName} onForceRefresh={() => setRefreshTrigger(v => v + 1)}/>
     </Panel>
     </PanelGroup>
   );

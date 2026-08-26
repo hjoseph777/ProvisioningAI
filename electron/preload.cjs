@@ -39,6 +39,23 @@ contextBridge.exposeInMainWorld('file', {
   save: (payload) => ipcRenderer.invoke('file:save', payload),
 });
 
+contextBridge.exposeInMainWorld('archive', {
+  // payload: { name, sourceVault, sourceWorkflowId, stateCount, transitionCount, importedAt, data }
+  // returns: { ok, id, filePath }
+  save: (payload) => ipcRenderer.invoke('archive:save', payload),
+  // returns: { ok, rows: [{ id, name, sourceVault, sourceWorkflowId, stateCount, transitionCount, importedAt, filePath }] }
+  list: () => ipcRenderer.invoke('archive:list'),
+});
+
+contextBridge.exposeInMainWorld('storage', {
+  // Fire-and-forget nudge after a localStorage write -- main debounces these
+  // into one flushStorageData() call ~500ms after the last one, so a hard
+  // crash or OS-initiated shutdown (which never reaches this app's own
+  // before-quit handler on Windows) only risks losing the last ~500ms of
+  // edits instead of whatever hasn't landed since the last quit.
+  flushSoon: () => ipcRenderer.send('storage:flush-soon'),
+});
+
 contextBridge.exposeInMainWorld('workflowTranslator', {
   // Spawns ProvisioningAI.Workflow.Cli fresh, feeds it Mermaid text over
   // stdin, returns its parsed plan JSON (PlanFormatter.ToJson shape).

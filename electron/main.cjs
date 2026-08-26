@@ -1,8 +1,9 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session } = require('electron');
 const path = require('path');
 const { spawn }     = require('child_process');
-const { writeFile, unlink } = require('fs/promises');
+const { writeFile, unlink, mkdir } = require('fs/promises');
+const { DatabaseSync } = require('node:sqlite');
 const os    = require('os');
 const https = require('https');
 const http  = require('http');
@@ -39,6 +40,39 @@ app.whenReady().then(createWindow);
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 
+// Studio/M-Files Flow's open tabs live in the renderer's own localStorage
+// (useWorkflowStore's persist middleware, not this file). Chromium commits
+// DOM Storage to disk on a short async delay, not synchronously on every
+// write -- confirmed live: a tab-close followed by a hard process kill
+// within ~1-2s of the click reverted on relaunch, but the same action
+// survived when a few seconds elapsed first.
+//
+// 'before-quit' flush kept as a safety net for an in-app Quit -- but it is
+// NOT a fix for a real OS shutdown/restart/logout. Confirmed two ways: (1)
+// Electron's own docs state before-quit/will-quit/quit "will not be emitted
+// if the app is closed due to a shutdown/restart of the system or a user
+// logout" on Windows, and powerMonitor's 'shutdown' event isn't implemented
+// on Windows either; (2) confirmed live against this exact app -- sent the
+// real WM_QUERYENDSESSION then WM_ENDSESSION messages Windows sends during a
+// genuine shutdown/reboot directly to the app's window (via a P/Invoke
+// SendMessageTimeout), then killed the process immediately after. A change
+// made just before the signal was lost exactly as often as with no signal
+// sent at all -- proving this handler never engages for that path. The real
+// fix is the 'storage:flush-soon' handler below, which doesn't depend on any
+// quit/shutdown signal firing at all.
+app.on('before-quit', () => { session.defaultSession.flushStorageData(); });
+
+// Primary durability mechanism -- debounces the renderer's post-write
+// flushSoon() pings (see useWorkflowStore.js's flushingStorage) into one
+// flushStorageData() call ~500ms after the last edit, so data is safely on
+// disk shortly after every change instead of only at a quit event that a
+// real reboot on Windows never delivers.
+let flushSoonTimer = null;
+ipcMain.on('storage:flush-soon', () => {
+  clearTimeout(flushSoonTimer);
+  flushSoonTimer = setTimeout(() => session.defaultSession.flushStorageData(), 500);
+});
+
 // ── Resolve script paths (dev vs packaged) ────────────────────────
 function scriptPath (name) {
   return app.isPackaged
@@ -59,6 +93,76 @@ function translatorCliPath () {
     ? path.join(process.resourcesPath, 'cli', 'ProvisioningAI.Workflow.Cli.exe')
     : path.join(__dirname, '../provisioningai-backend/ProvisioningAI.Workflow.Cli/bin/Release/net8.0/ProvisioningAI.Workflow.Cli.exe');
 }
+
+// ── Local workflow archive (SQLite ledger + JSON sidecar files) ───
+// One row per saved workflow. The row is a findable-by-name index only --
+// `data` (the full JSON blob) stays the actual source of truth, same as the
+// JSON files already produced elsewhere in this app. Lives in userData, not
+// alongside the build, so it survives updates/reinstalls and isn't wiped by
+// clearing browser storage the way localStorage would be.
+let _db = null;
+function getDb () {
+  if (_db) return _db;
+  const dbPath = path.join(app.getPath('userData'), 'workflows.db');
+  _db = new DatabaseSync(dbPath);
+  _db.exec(`
+    CREATE TABLE IF NOT EXISTS workflows (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      name             TEXT NOT NULL,
+      sourceVault      TEXT,
+      sourceWorkflowId INTEGER,
+      stateCount       INTEGER NOT NULL,
+      transitionCount  INTEGER NOT NULL,
+      importedAt       TEXT NOT NULL,
+      filePath         TEXT,
+      data             TEXT NOT NULL
+    )
+  `);
+  return _db;
+}
+
+function sanitizeFileName (name) {
+  return String(name || 'workflow').replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 80);
+}
+
+// payload: { name, sourceVault, sourceWorkflowId, stateCount, transitionCount, importedAt, data }
+// `data` is the raw object to persist -- stringified here, once, so the
+// renderer never has to know the DB stores it as TEXT.
+ipcMain.handle('archive:save', async (_event, payload) => {
+  const db = getDb();
+  const importedAt = payload.importedAt || new Date().toISOString();
+
+  const dir = path.join(app.getPath('userData'), 'workflows');
+  await mkdir(dir, { recursive: true });
+  const fileName = `${Date.now()}-${sanitizeFileName(payload.name)}.json`;
+  const filePath = path.join(dir, fileName);
+  await writeFile(filePath, JSON.stringify(payload.data, null, 2), 'utf8');
+
+  const stmt = db.prepare(`
+    INSERT INTO workflows (name, sourceVault, sourceWorkflowId, stateCount, transitionCount, importedAt, filePath, data)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const info = stmt.run(
+    payload.name,
+    payload.sourceVault ?? null,
+    payload.sourceWorkflowId ?? null,
+    payload.stateCount,
+    payload.transitionCount,
+    importedAt,
+    filePath,
+    JSON.stringify(payload.data)
+  );
+  return { ok: true, id: Number(info.lastInsertRowid), filePath };
+});
+
+ipcMain.handle('archive:list', async () => {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT id, name, sourceVault, sourceWorkflowId, stateCount, transitionCount, importedAt, filePath
+    FROM workflows ORDER BY importedAt DESC
+  `).all();
+  return { ok: true, rows };
+});
 
 // ── IPC: Connection test ──────────────────────────────────────────
 // Uses MFilesServerApplication (server-side COM) so it works even

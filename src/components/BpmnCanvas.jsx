@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ReactFlow, ReactFlowProvider, Background, MiniMap, ConnectionMode, SelectionMode, MarkerType, useReactFlow } from '@xyflow/react';
+import { ReactFlow, ReactFlowProvider, Background, MiniMap, ConnectionMode, SelectionMode, MarkerType, useReactFlow, useViewport } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useBpmnStore, makeId } from '../store/useBpmnStore';
 import GatewayNode from '../features/nodes/GatewayNode';
@@ -16,6 +16,7 @@ import BpmnPalette from '../features/palette/BpmnPalette';
 import SelectedNodesToolbar from '../features/toolbar/SelectedNodesToolbar';
 import NodeInspectorToolbar from '../features/toolbar/NodeInspectorToolbar';
 import HelperLines from './bpmn/HelperLines';
+import HScrollBar from './HScrollBar';
 import { getHelperLines } from '../utils/bpmnHelperLines';
 import { sortForHierarchy, fitNodeIntoParent } from '../utils/bpmnPools';
 import { validateBpmnModel, locateWarning } from '../features/bpmn-io/bpmnModdle';
@@ -136,6 +137,17 @@ function BpmnFlow() {
   const exportBpmnFile = useBpmnStore(s => s.exportBpmnFile);
   const importBpmnFileAction = useBpmnStore(s => s.importBpmnFile);
   const { fitView, zoomIn, zoomOut, screenToFlowPosition, deleteElements, getIntersectingNodes, getInternalNode, getNodesBounds, toObject, setViewport } = useReactFlow();
+  // Bottom horizontal scrollbar adapter — HScrollBar (src/components/
+  // HScrollBar.jsx, shared with Studio and M-Files Flow) only deals in
+  // pixels; unlike Studio's native scroll or M-Files Flow's hand-rolled
+  // panRef, this canvas's pan state is React Flow's own D3-zoom viewport
+  // ({x,y,zoom}, screen-space pixels), read reactively via useViewport() so
+  // drag-pan/scroll-zoom/fitView/minimap-drag all stay in sync automatically
+  // through the effect below, with no manual hook-in at each call site the
+  // way MFlowCanvas.jsx's imperative refs need.
+  const viewport = useViewport();
+  const flowWrapRef = useRef(null);
+  const hscrollRef = useRef(null);
   const importInputRef = useRef(null);
   const saveLoadInputRef = useRef(null);
   const reconnectInProgressRef = useRef(false);
@@ -242,6 +254,43 @@ function BpmnFlow() {
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [undo, redo, nodes, setNodes]);
+
+  // Bottom horizontal scrollbar — see flowWrapRef/hscrollRef's own comment
+  // above for why this canvas's adapter differs from Studio's/M-Files
+  // Flow's. centerScroll - viewport.x is the same "virtual scrollLeft"
+  // mapping M-Files Flow's panRef-based adapter uses; React Flow's own pan
+  // is free/unbounded like M-Files Flow's (not browser-clamped like
+  // Studio's native scroll), so it gets the same one-viewport-width buffer,
+  // not Studio's exact-bounds treatment.
+  const bpmnScrollMetrics = () => {
+    const viewportWidth = flowWrapRef.current?.clientWidth || 1;
+    const bounds = nodes.length ? getNodesBounds(nodes) : null;
+    const contentWidth = bounds ? bounds.width * viewport.zoom : viewportWidth;
+    const buffer = viewportWidth;
+    const maxScroll = Math.max(contentWidth - viewportWidth, 0) + buffer;
+    return { viewportWidth, virtualContentWidth: viewportWidth + maxScroll, maxScroll, centerScroll: maxScroll / 2 };
+  };
+  const onBpmnHScrollChange = newScrollLeft => {
+    const { centerScroll } = bpmnScrollMetrics();
+    setViewport({ x: centerScroll - newScrollLeft, y: viewport.y, zoom: viewport.zoom });
+  };
+  // useViewport() is already reactive, so this effect (not a raw DOM
+  // listener the way the other two canvases need) fires automatically on
+  // drag-pan, scroll-zoom, fitView, and minimap-drag — no manual sync call
+  // needed at each of those call sites. The ResizeObserver separately
+  // covers width changes with no viewport change of their own (window
+  // resize, the palette panel opening/closing).
+  useEffect(() => {
+    const el = flowWrapRef.current; if (!el) return;
+    const sync = () => {
+      const { viewportWidth, virtualContentWidth, centerScroll } = bpmnScrollMetrics();
+      hscrollRef.current?.setMetrics({ viewportWidth, contentWidth: virtualContentWidth, scrollLeft: centerScroll - viewport.x });
+    };
+    sync();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(sync) : null;
+    ro?.observe(el);
+    return () => ro?.disconnect();
+  }, [viewport.x, viewport.y, viewport.zoom, nodes]);
 
   // Closes the context menu on Escape or on any click elsewhere in the
   // document — a menu that only closes via its own actions would trap the
@@ -916,7 +965,7 @@ function BpmnFlow() {
             <div className="bpmn-toolbar-divider" />
             <button type="button" className="xb" onClick={resetAll} title="Reset to the starter example"><span className="bpmn-tb-icon">↺</span> Reset</button>
           </div>
-          <div className="bpmn-flow-wrap">
+          <div className="bpmn-flow-wrap" ref={flowWrapRef}>
             <ReactFlow
               nodes={nodes}
               edges={edges}
@@ -1135,6 +1184,13 @@ function BpmnFlow() {
               );
             })()}
           </div>
+          {/* Bottom horizontal scrollbar — a real flex sibling of
+              .bpmn-flow-wrap inside .bpmn-main's flex column (same slot
+              .bpmn-status-bar already occupies below it), shared with Studio
+              and M-Files Flow (src/components/HScrollBar.jsx). See
+              bpmnScrollMetrics/onBpmnHScrollChange above for how this
+              canvas's React-Flow-native viewport maps to it. */}
+          <HScrollBar ref={hscrollRef} onScrollLeftChange={onBpmnHScrollChange}/>
           {/* Persistent validation status bar (Phase E) — always visible,
               continuously reflects validateBpmnModel()'s real output as the
               diagram changes (debounced above), not just after an explicit

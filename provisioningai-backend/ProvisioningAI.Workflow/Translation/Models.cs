@@ -37,7 +37,17 @@ public sealed record ValidationIssue(IssueSeverity Severity, string Code, string
 
 public sealed class PlannedState
 {
+    /// <summary>The sanitized structural ID — what FromState/ToState reference everywhere.</summary>
     public required string Name { get; init; }
+
+    /// <summary>
+    /// The real, possibly-accented, possibly-spaced display name from an `ID : Label`
+    /// Mermaid line, when the diagram had one — distinct from <see cref="Name"/>, which is
+    /// the sanitized ID and may have lost characters Name's own regex strips. Falls back to
+    /// Name when the diagram never declared a separate label (not every valid diagram uses
+    /// this declaration form).
+    /// </summary>
+    public required string DisplayName { get; init; }
 
     /// <summary>Set when a `[*] --&gt; X` start pseudo-edge targets this state (§6.4 point 2).</summary>
     public bool IsInitial { get; set; }
