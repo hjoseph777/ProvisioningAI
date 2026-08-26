@@ -211,7 +211,15 @@ export function parseMermaidText(raw) {
         );
         return;
       }
-      touch(id).name = label;
+      // Both naming forms must record a rename. The clash handler below
+      // reads the recorded line to tell the user which declaration it
+      // refused, so a state named here without one would leave it with
+      // nothing to point at.
+      const labelledState = touch(id);
+      if (label !== labelledState.name) {
+        renames.push({ line: lineNo, id, from: labelledState.name, to: label });
+      }
+      labelledState.name = label;
       return;
     }
 
@@ -407,6 +415,8 @@ export function parseMermaidText(raw) {
         return;
       }
 
+      // Every renamed state has a rename entry: the `X : Label` path records
+      // one and the as-form records one too, so this cannot be undefined.
       // Repeated aliases for one id mean the LAST one produced the current
       // name, so that is the entry to report and remove.
       const clash = renames.findLast((r) => r.id === id && r.to === st.name);
