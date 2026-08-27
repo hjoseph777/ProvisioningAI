@@ -472,6 +472,42 @@ ipcMain.handle('workflow:translate', async (_event, { mermaid }) => {
   });
 });
 
+// ── IPC: OpenAI-compatible chat completion (OpenRouter and friends) ──
+// Same job as sow:claude-extract above, different wire format. Kept as a
+// separate handler rather than branching inside that one, so the existing
+// Studio caller cannot be affected by a change made for M-Files Flow.
+//
+// OpenRouter serves free models, which matters here: the drafting step
+// should not require a paid key to try. The parser downstream is what
+// decides whether a draft is usable, not which model produced it.
+ipcMain.handle('sow:openai-extract', async (_event, { apiKey, model, systemPrompt, text, host, path }) => {
+  try {
+    const data = await httpsPost(
+      host || 'openrouter.ai',
+      path || '/api/v1/chat/completions',
+      {
+        'Content-Type':  'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      { model, max_tokens: 4096, messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user',   content: text },
+      ] }
+    );
+    const choice = data.choices?.[0];
+    const raw    = choice?.message?.content || '';
+    const clean  = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    // OpenAI-compatible APIs report truncation as finish_reason 'length'.
+    // Normalised to the same stopReason shape the Anthropic handler returns
+    // so the caller's truncation guard does not need to know the provider.
+    const stopReason = choice?.finish_reason === 'length' ? 'max_tokens' : (choice?.finish_reason || null);
+    if (!raw && data.error) return { ok: false, error: data.error.message || String(data.error) };
+    return { ok: true, json: clean, stopReason };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
 // ── Helper: HTTPS POST from Node (no CORS) ────────────────────────
 function httpsPost(host, urlPath, headers, body) {
   return new Promise((resolve, reject) => {
@@ -541,7 +577,10 @@ ipcMain.handle('sow:claude-extract', async (_event, { apiKey, model, systemPromp
     );
     const raw   = data.content?.[0]?.text || '';
     const clean = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-    return { ok: true, json: clean };
+    // stopReason is additive - existing callers read only .json. Without it
+    // a response cut short at max_tokens is indistinguishable from a
+    // complete one, and a truncated workflow still parses cleanly.
+    return { ok: true, json: clean, stopReason: data.stop_reason || null };
   } catch (e) {
     return { ok: false, error: e.message };
   }

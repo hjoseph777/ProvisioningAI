@@ -771,6 +771,62 @@ path.transition.mflow-transition-hover{stroke:var(--a3) !important;stroke-width:
 .mflow-ltv-issue-msg{font-size:9.5px;color:var(--mid);margin-top:3px;line-height:1.4}
 .mflow-ltv-issue-edge{font-size:8.5px;color:var(--dim);margin-top:3px;font-style:italic}
 
+
+/* Paste Diagram dialog (M-Files Flow). Secondary text uses --mid2, not
+   --mid/--dim, per the 2026-08-22 contrast pass - --dim on --s3 measured
+   ~1.4:1 live, so it is not used for anything readable here. */
+.mflow-import-tabs{display:flex;gap:2px;padding:0 14px;border-bottom:1px solid var(--border)}
+.mflow-import-tab{display:flex;align-items:center;gap:6px;background:none;border:none;border-bottom:2px solid transparent;color:var(--mid2);font-size:11px;padding:8px 10px;cursor:pointer;margin-bottom:-1px}
+.mflow-import-tab:hover{color:var(--a3)}
+.mflow-import-tab.active{color:var(--a3);border-bottom-color:var(--a2)}
+.mflow-import-key{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:7px 10px;font-family:var(--mono);font-size:11px}
+.mflow-import-key:focus{outline:none;border-color:var(--a2)}
+.mflow-import-key::placeholder{color:var(--mid2);opacity:.55}
+.mflow-import-draftrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mflow-import-drafted{font-size:10px;color:var(--a3)}
+.mflow-spin{animation:mflow-spin 1s linear infinite}
+@keyframes mflow-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.mflow-spin{animation:none}}
+.mflow-import-providerrow{display:flex;align-items:center;gap:10px}
+.mflow-import-select{background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:6px 9px;font-family:var(--mono);font-size:11px}
+.mflow-import-select:focus{outline:none;border-color:var(--a2)}
+.mflow-import-modelname{font-family:var(--mono);font-size:10px;color:var(--mid2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mflow-import-keyhint{font-size:10px;color:var(--mid2);line-height:1.5}
+.mflow-import-retention{font-size:10px;color:var(--gold);line-height:1.5;border-left:2px solid var(--gold);padding-left:7px}
+.mflow-import-backdrop{position:fixed;inset:0;background:rgba(3,9,16,.72);display:flex;align-items:center;justify-content:center;z-index:200}
+.mflow-import{width:min(660px,92vw);max-height:86vh;display:flex;flex-direction:column;background:var(--s1);border:1px solid var(--bdr2);border-radius:8px;box-shadow:0 18px 48px rgba(0,0,0,.5)}
+.mflow-import-head{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--border);color:var(--a3)}
+.mflow-import-head h2{flex:1;margin:0;font-size:13px;font-weight:600;letter-spacing:.02em;color:var(--text)}
+.mflow-import-x{background:none;border:none;color:var(--mid2);cursor:pointer;padding:2px;border-radius:3px;display:flex}
+.mflow-import-x:hover{color:var(--a3)}
+.mflow-import-body{padding:14px;overflow-y:auto;display:flex;flex-direction:column;gap:8px}
+.mflow-import-lbl{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mid2)}
+.mflow-import-ta{width:100%;min-height:150px;resize:vertical;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:10px;font-family:var(--mono);font-size:12px;line-height:1.6}
+.mflow-import-ta:focus{outline:none;border-color:var(--a2)}
+.mflow-import-ta::placeholder{color:var(--mid2);opacity:.55}
+.mflow-import-sample{align-self:flex-start;background:none;border:none;color:var(--a3);font-size:11px;cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:2px}
+.mflow-import-preview{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--border);padding-top:10px}
+.mflow-import-counts{display:flex;flex-wrap:wrap;gap:14px;font-size:11px;color:var(--mid2)}
+.mflow-import-counts strong{color:var(--text);font-family:var(--mono)}
+.mflow-import-counts .warn{color:var(--gold)}
+.mflow-import-counts .warn strong{color:var(--gold)}
+.mflow-import-empty{margin:0;font-size:11px;color:var(--mid2);line-height:1.6}
+.mflow-import-empty code{font-family:var(--mono);color:var(--a3)}
+.mflow-import-gaps{border:1px solid var(--border);border-left:2px solid var(--gold);border-radius:4px;background:var(--s2);padding:9px 11px}
+.mflow-import-gaps-head{display:flex;align-items:center;gap:6px;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--gold);margin-bottom:7px}
+.mflow-import-gaps ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}
+.mflow-import-gaps li{display:flex;flex-direction:column;gap:2px;font-size:11px}
+.mflow-import-gaps li code{font-family:var(--mono);font-size:10px;color:var(--mid2)}
+.mflow-import-gap-text{font-family:var(--mono);font-size:11px;color:var(--text);word-break:break-word}
+.mflow-import-gap-why{color:var(--mid2);line-height:1.5}
+.mflow-import-foot{display:flex;align-items:center;gap:12px;padding:11px 14px;border-top:1px solid var(--border)}
+.mflow-import-hint{flex:1;font-size:10px;color:var(--mid2)}
+.mflow-import-actions{display:flex;gap:8px}
+.mflow-import-btn{display:flex;align-items:center;gap:5px;background:var(--s3);color:var(--text);border:1px solid var(--bdr2);border-radius:4px;padding:6px 12px;font-size:11px;cursor:pointer}
+.mflow-import-btn:hover:not(:disabled){border-color:var(--a3);color:var(--a3)}
+.mflow-import-btn.primary{background:var(--accent);border-color:var(--a2);color:#fff}
+.mflow-import-btn.primary:hover:not(:disabled){background:var(--a2)}
+.mflow-import-btn:disabled{opacity:.4;cursor:not-allowed}
 .mflow-pal-shell{width:44px;flex-shrink:0;position:relative;z-index:20}
 .mflow-pal-shell.pinned{width:240px}
 .mflow-pal-panel{position:relative;width:44px;height:100%;display:flex;flex-direction:column;overflow:hidden;background:rgba(7,17,31,0.85);backdrop-filter:blur(12px);border-right:1px solid var(--border)}
