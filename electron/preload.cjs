@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('sow', {
   // payload: { apiKey, model, systemPrompt, text }
   // returns: { ok, json } | { ok: false, error }
   claudeExtract: (payload) => ipcRenderer.invoke('sow:claude-extract', payload),
+  openaiExtract: (payload) => ipcRenderer.invoke('sow:openai-extract', payload),
   // Calls Cacoo REST API (with key) or localhost:5000 proxy (without key)
   // payload: { diagramId, apiKey }
   // returns: { ok, raw } | { ok: false, error }

@@ -11,6 +11,9 @@ import MFlowPalette from './mflow/MFlowPalette';
 import LiveTranslationView from './mflow/LiveTranslationView';
 import SaveIndicator from './SaveIndicator';
 import HScrollBar from './HScrollBar';
+import ImportDialog from './mflow/ImportDialog';
+import { layoutStates } from '../utils/mermaidImport';
+import { logConversion } from '../utils/conversionLog';
 
 // ── M-Files Flow ─────────────────────────────────────────────────
 // Clean-slate rebuild, NOT an edit to CommandCenter.jsx (Studio). Shares
@@ -35,6 +38,11 @@ import HScrollBar from './HScrollBar';
 // ("a state with 2+ outgoing transitions automatically gets a diamond")
 // even though it's not byte-identical to Studio's own logic. Revisit if
 // `group`-based hub UI ever gets built for this canvas.
+
+// Vertical gap left between whatever is already drawn and the first row of
+// an imported diagram. Roughly one layoutStates row, so the import reads as
+// its own block rather than as a continuation of the existing workflow.
+const IMPORT_CLEARANCE = 130;
 
 const loadMermaid = () => new Promise(res => {
   if (window.mermaid) return res(window.mermaid);
@@ -199,6 +207,7 @@ export default function MFlowCanvas() {
   const updateRule = useWorkflowStore(s => s.updateRule);
   const deleteRule = useWorkflowStore(s => s.deleteRule);
   const takeSnapshot = useWorkflowStore(s => s.takeSnapshot);
+  const [importOpen, setImportOpen] = useState(false);
   const undo = useWorkflowStore(s => s.undo);
   const redo = useWorkflowStore(s => s.redo);
   // Subscribed directly (not via canUndo()/canRedo() functions) so the menu
@@ -1322,6 +1331,91 @@ export default function MFlowCanvas() {
   // Names are the lookup key everywhere in this shared data model (Mermaid
   // rendering, selection, transitions), so this has to be unique or two
   // same-named states would collide.
+
+  // Turns a parsed diagram into real states and transitions using the same
+  // addState/addTransition calls the palette tiles already use - no store
+  // changes, and no diamond/hub flag is ever set here (those stay derived
+  // from real edge counts). One snapshot up front so Undo reverses the
+  // whole import as a single step rather than state by state.
+  const applyImport = (parsed, meta = {}) => {
+    if (!wf || !parsed) return;
+    takeSnapshot();
+
+    // Existing names win: importing must never silently rename or merge
+    // into a state already on the canvas, so collisions get a suffix.
+    const taken = new Set((wf.states || []).map(st => st.name));
+    const finalName = new Map();
+    parsed.states.forEach(st => {
+      let name = st.name;
+      let n = 2;
+      while (taken.has(name)) { name = `${st.name} (${n})`; n += 1; }
+      taken.add(name);
+      finalName.set(st.name, name);
+    });
+
+    // A workflow can only have one initial state - importing a second one
+    // makes the translator fail validation outright with
+    // MULTIPLE_INITIAL_STATES, so the flag is dropped rather than carried
+    // in. Not silent: the dialog warns before the user commits.
+    const alreadyHasInitial = (wf.states || []).some(st => st.initial);
+
+    // Imported states carry explicit coordinates, but states already on the
+    // canvas usually do not — theirs come from Mermaid's own layout and sit
+    // in the store as null. Starting at layoutStates' default origin would
+    // drop the import straight on top of them, so begin below whatever is
+    // drawn right now instead.
+    //
+    // Measured off the live SVG rather than layoutRef.current.nodeCenters:
+    // that ref is only rebuilt on a successful render, so an empty workflow
+    // (which clears the container without rebuilding it) leaves the PREVIOUS
+    // workflow's nodes in it and an import onto a blank canvas gets pushed
+    // hundreds of units down for no reason. getBBox reads the DOM as it
+    // actually is, and covers edges and labels too, not just node centres.
+    let box = null;
+    try { box = diagRef.current?.querySelector('svg')?.getBBox?.() ?? null; }
+    catch { box = null; } // getBBox throws on an unrendered element
+    const origin = box && box.height > 0
+      ? { originY: box.y + box.height + IMPORT_CLEARANCE }
+      : {};
+
+    layoutStates(parsed.states, parsed.transitions, origin).forEach(st => {
+      addState(activeId, {
+        name: finalName.get(st.name),
+        initial: alreadyHasInitial ? false : st.initial,
+        terminal: st.terminal,
+        x: st.x,
+        y: st.y,
+        color: stateColor,
+      });
+    });
+
+    parsed.transitions.forEach(t => {
+      addTransition(activeId, {
+        from: finalName.get(t.from) || t.from,
+        to: finalName.get(t.to) || t.to,
+        label: t.label || undefined,
+        conditions: t.conditions,
+      });
+    });
+
+    // Every conversion gets recorded - what parsed, what was refused, and
+    // the exact text of each refusal. The learning loop that consumes this
+    // is phase 2, but the data has to start accumulating now or it will not
+    // exist when that gets built.
+    logConversion(meta.draftedFromDocument ? 'sow-draft' : 'paste-import', {
+      statesImported: parsed.states.length,
+      transitionsImported: parsed.transitions.length,
+      unresolvedCount: parsed.unsupported.length,
+      unresolved: parsed.unsupported.map(u => ({ text: u.text, reason: u.reason })),
+      conditions: parsed.transitions.map(t => t.conditions).filter(Boolean),
+      initialDropped: alreadyHasInitial && parsed.states.some(st => st.initial),
+      editedAfterDraft: !!meta.editedAfterDraft,
+      renamed: [...finalName.entries()]
+        .filter(([from, to]) => from !== to)
+        .map(([from, to]) => ({ from, to })),
+    });
+  };
+
   const uniqueStateName = base => {
     const existing = new Set((wf?.states || []).map(s => s.name));
     if (!existing.has(base)) return base;
@@ -1559,6 +1653,10 @@ export default function MFlowCanvas() {
       onCollapse={() => setLeftPanelCollapsed(true)} onExpand={() => setLeftPanelCollapsed(false)}
       className="mflow-split-left">
     <div className="mflow-shell">
+      {importOpen && (
+        <ImportDialog onClose={() => setImportOpen(false)} onImport={applyImport}
+          workflowHasInitial={(wf?.states || []).some(st => st.initial)}/>
+      )}
       <MFlowPalette
         pinned={palettePinned}
         onTogglePinned={() => setPalettePinned(p => !p)}
@@ -1566,6 +1664,7 @@ export default function MFlowCanvas() {
         onAddInitialState={() => { if (wf) { takeSnapshot(); addState(activeId, { name: uniqueStateName('New Initial State'), initial: true, color: stateColor }); } }}
         onAddEndState={() => { if (wf) { takeSnapshot(); addState(activeId, { name: uniqueStateName('New End State'), terminal: true, color: stateColor }); } }}
         onAddComment={() => { if (wf) { takeSnapshot(); addComment(activeId, undefined, commentColor); } }}
+        onPasteDiagram={() => { if (wf) setImportOpen(true); }}
         onAddDecision={() => {
           if (!wf) return;
           takeSnapshot();
