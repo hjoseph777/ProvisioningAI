@@ -39,6 +39,11 @@ import { logConversion } from '../utils/conversionLog';
 // even though it's not byte-identical to Studio's own logic. Revisit if
 // `group`-based hub UI ever gets built for this canvas.
 
+// Vertical gap left between whatever is already drawn and the first row of
+// an imported diagram. Roughly one layoutStates row, so the import reads as
+// its own block rather than as a continuation of the existing workflow.
+const IMPORT_CLEARANCE = 130;
+
 const loadMermaid = () => new Promise(res => {
   if (window.mermaid) return res(window.mermaid);
   const s = document.createElement('script');
@@ -1354,7 +1359,26 @@ export default function MFlowCanvas() {
     // in. Not silent: the dialog warns before the user commits.
     const alreadyHasInitial = (wf.states || []).some(st => st.initial);
 
-    layoutStates(parsed.states, parsed.transitions).forEach(st => {
+    // Imported states carry explicit coordinates, but states already on the
+    // canvas usually do not — theirs come from Mermaid's own layout and sit
+    // in the store as null. Starting at layoutStates' default origin would
+    // drop the import straight on top of them, so begin below whatever is
+    // drawn right now instead.
+    //
+    // Measured off the live SVG rather than layoutRef.current.nodeCenters:
+    // that ref is only rebuilt on a successful render, so an empty workflow
+    // (which clears the container without rebuilding it) leaves the PREVIOUS
+    // workflow's nodes in it and an import onto a blank canvas gets pushed
+    // hundreds of units down for no reason. getBBox reads the DOM as it
+    // actually is, and covers edges and labels too, not just node centres.
+    let box = null;
+    try { box = diagRef.current?.querySelector('svg')?.getBBox?.() ?? null; }
+    catch { box = null; } // getBBox throws on an unrendered element
+    const origin = box && box.height > 0
+      ? { originY: box.y + box.height + IMPORT_CLEARANCE }
+      : {};
+
+    layoutStates(parsed.states, parsed.transitions, origin).forEach(st => {
       addState(activeId, {
         name: finalName.get(st.name),
         initial: alreadyHasInitial ? false : st.initial,
